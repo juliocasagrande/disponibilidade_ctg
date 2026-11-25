@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar | Disponibilidade CTG</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="acesso">
+    <section class="marca" aria-label="Disponibilidade CTG">
+      <div class="logo"><img src="/login-logo.png" alt="CTG Brasil" width="155"></div>
+      <div class="marca-texto">
+        <h1>Disponibilidade<br>das usinas</h1>
+        <p>Indicadores, manutenções programadas e projeções de disponibilidade.</p>
+      </div>
+    </section>
+    <section class="entrada" aria-labelledby="titulo-login">
+      <div class="entrada-conteudo">
+        <h2 id="titulo-login">Entrar no painel</h2>
+        <p>Use as credenciais fornecidas pela administração do painel.</p>
+        <form action="/login" method="post">
+          <label for="usuario">Usuário</label>
+          <input id="usuario" name="usuario" autocomplete="username" autocapitalize="none"
+                 spellcheck="false" maxlength="40" value="__USUARIO__" required>
+          <label for="senha">Senha</label>
+          <input id="senha" name="senha" type="password" autocomplete="current-password"
+                 maxlength="128" required>
+          <!-- ERRO_LOGIN -->
+          <button type="submit">Entrar</button>
+        </form>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

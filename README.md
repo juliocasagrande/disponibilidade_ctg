@@ -172,7 +172,9 @@ WHERE mes_fim_historico = DATE '2026-10-01'
 
 ### Deploy no Railway
 
-Conecte o repositório a um serviço Railway, monte um volume persistente em `/data` e defina `CALC_ID_WEB_PASSWORD` e `CALC_ID_ADMIN_PASSWORD` nas variáveis do serviço. O acesso ao painel usa o usuário `painel`. A área Administrador pede a senha administrativa separadamente. O serviço usa a porta `PORT` e o Railway testa `/api/health`.
+Conecte o repositório a um serviço Railway, monte um volume persistente em `/data` e defina `CALC_ID_WEB_PASSWORD` e `CALC_ID_ADMIN_PASSWORD` nas variáveis do serviço. Na tela de entrada, a conta inicial é `painel` e usa `CALC_ID_WEB_PASSWORD`. A área Administrador pede a senha administrativa separadamente. O serviço usa a porta `PORT` e o Railway testa `/api/health`.
+
+Em **Administrador → Usuários**, é possível criar contas individuais, editar nomes, trocar senhas e ativar ou desativar acessos. Trocar a senha ou desativar uma conta encerra suas sessões abertas. As contas ficam em `/data/dados/usuarios.sqlite3`. A senha da conta inicial é alterada nas variáveis do Railway.
 
 O primeiro deploy copia as bases públicas do ONS e do MME para o volume. Os deploys seguintes conservam os insumos atualizados, as configurações do painel, os arquivos carregados e os cenários. O serviço recalcula os produtos na inicialização. A planilha de manutenções pode ser carregada na área Administrador e o cadastro SIN pode ser colocado em `/data/dados/referencias_sin/` pelo acesso autenticado ao volume. Rode **Recalcular** após adicionar os insumos.
 

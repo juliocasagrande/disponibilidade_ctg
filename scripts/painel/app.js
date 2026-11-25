@@ -1585,6 +1585,7 @@
     if (getApiBase()) reqOpts.credentials = 'include';
     const res = await fetch(apiUrl(url), reqOpts);
     const body = await res.json().catch(() => ({}));
+    if (body.sessao_expirada && el('sessao-painel')) location.replace('/login');
     if (!res.ok) throw new Error(body.erro || `Erro HTTP ${res.status}`);
     return body;
   }
@@ -1631,6 +1632,56 @@
       if (job) renderJob(job);
       carregarConfigFontesUI();
       carregarParquetsUI();
+      if (el('sessao-painel') && !el('atab-usuarios').hidden) carregarUsuariosUI();
+    }
+  }
+
+  function editarUsuario(conta = null) {
+    const form = el('form-usuario');
+    form.reset();
+    el('usuario-titulo').textContent = conta ? 'Editar usuário' : 'Novo usuário';
+    el('usuario-nome').value = conta ? conta.nome : '';
+    el('usuario-login').value = conta ? conta.usuario : '';
+    el('usuario-login').readOnly = Boolean(conta);
+    el('usuario-senha').required = !conta;
+    el('usuario-senha-label').textContent = conta ? 'Nova senha' : 'Senha';
+    el('usuario-senha-dica').textContent = conta ? 'Deixe em branco para manter a senha atual.' : 'Use pelo menos 12 caracteres.';
+    el('usuario-ativo').checked = conta ? conta.ativo : true;
+    el('usuario-salvar').textContent = conta ? 'Salvar alterações' : 'Criar conta';
+    el('usuario-status').textContent = '';
+  }
+
+  async function carregarUsuariosUI() {
+    try {
+      const { usuarios } = await apiJson('/api/admin/usuarios');
+      const lista = el('usuarios-lista');
+      lista.replaceChildren();
+      for (const conta of usuarios) {
+        const linha = lista.insertRow();
+        linha.insertCell().textContent = conta.nome;
+        linha.insertCell().textContent = conta.usuario;
+        const situacao = document.createElement('span');
+        situacao.className = conta.ativo ? 'badge' : 'badge warn';
+        situacao.textContent = conta.ativo ? 'Ativa' : 'Inativa';
+        linha.insertCell().append(situacao);
+        const acoes = linha.insertCell();
+        if (conta.inicial) {
+          acoes.textContent = 'Gerenciada no Railway';
+        } else {
+          const editar = document.createElement('button');
+          editar.type = 'button';
+          editar.className = 'btn secondary';
+          editar.textContent = 'Editar';
+          editar.setAttribute('aria-label', `Editar ${conta.usuario}`);
+          editar.onclick = () => {
+            editarUsuario(conta);
+            el('usuario-nome').focus();
+          };
+          acoes.append(editar);
+        }
+      }
+    } catch (erro) {
+      el('usuario-status').textContent = erro.message;
     }
   }
 
@@ -2440,15 +2491,51 @@
   el('btn-admin-logout').onclick = async () => {
     await fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
     adminAutenticado = false;
+    el('usuarios-lista').replaceChildren();
+    editarUsuario();
     atualizarVisaoAdmin(null);
   };
+  if (el('sessao-painel')) document.querySelector('[data-atab="usuarios"]').hidden = false;
   for (const btn of document.querySelectorAll('.admin-tab')) {
     btn.onclick = () => {
       const alvo = btn.dataset.atab;
       for (const b of document.querySelectorAll('.admin-tab')) b.classList.toggle('ativa', b === btn);
       for (const p of document.querySelectorAll('.atab-pane')) p.hidden = p.id !== `atab-${alvo}`;
+      if (alvo === 'usuarios') carregarUsuariosUI();
     };
   }
+  el('usuario-novo').onclick = () => {
+    editarUsuario();
+    el('usuario-nome').focus();
+  };
+  el('form-usuario').onsubmit = async ev => {
+    ev.preventDefault();
+    const botao = el('usuario-salvar');
+    const status = el('usuario-status');
+    const criar = !el('usuario-login').readOnly;
+    botao.disabled = true;
+    status.textContent = 'Salvando…';
+    try {
+      await apiJson('/api/admin/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          criar,
+          usuario: el('usuario-login').value,
+          nome: el('usuario-nome').value,
+          senha: el('usuario-senha').value,
+          ativo: el('usuario-ativo').checked,
+        }),
+      });
+      editarUsuario();
+      status.textContent = criar ? 'Conta criada.' : 'Alterações salvas.';
+      await carregarUsuariosUI();
+    } catch (erro) {
+      status.textContent = erro.message;
+    } finally {
+      botao.disabled = false;
+    }
+  };
   el('btn-run-recalcular').onclick = () => dispararPipeline('recalcular');
   el('btn-run-atualizar').onclick = () => dispararPipeline('atualizar_ons');
   el('btn-run-baixar').onclick = () => dispararPipeline('somente_baixar');

@@ -167,7 +167,8 @@
         <button id="mob-btn-admin" class="mob-icon-btn" type="button" data-page="admin" title="Administrador" aria-label="Administrador">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         </button>
-        <button id="mob-btn-logout" class="mob-logout-pill" type="button" hidden>Sair</button>
+        <button id="mob-btn-logout" class="mob-logout-pill" type="button" hidden>Sair do admin</button>
+        <!-- SESSAO_PAINEL_MOBILE -->
       </div>
     </header>
 
@@ -182,7 +183,8 @@
       </div>
       <div class="topbar-right">
         <span id="periodo-atual" class="topbar-meta"></span>
-        <button id="btn-admin-logout" class="btn secondary" hidden>Sair da sessão</button>
+        <button id="btn-admin-logout" class="btn secondary" hidden>Sair do admin</button>
+        <!-- SESSAO_PAINEL -->
       </div>
     </header>
 
@@ -597,6 +599,7 @@
             <button class="admin-tab" data-atab="fontes">Manutenções (Excel / Banco)</button>
             <button class="admin-tab" data-atab="parquet">Explorador Parquet</button>
             <button class="admin-tab" data-atab="sql">Console SQL (DuckDB)</button>
+            <button class="admin-tab" data-atab="usuarios" hidden>Usuários</button>
             <button class="admin-tab" data-atab="seguranca">Segurança</button>
           </div>
 
@@ -771,6 +774,43 @@ ORDER BY fid_bruto ASC;</textarea>
                 <div id="sql-erro" class="alert error" hidden></div>
               </div>
               <div class="table-wrap"><table id="tabela-sql"></table></div>
+            </div>
+          </div>
+
+          <div id="atab-usuarios" class="atab-pane" hidden>
+            <div class="usuarios-grid">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Contas do painel</h3>
+                  <button id="usuario-novo" class="btn secondary" type="button">Novo usuário</button>
+                </div>
+                <div class="table-wrap">
+                  <table id="usuarios-tabela" aria-label="Contas do painel">
+                    <thead><tr><th>Nome</th><th>Usuário</th><th>Situação</th><th>Ações</th></tr></thead>
+                    <tbody id="usuarios-lista"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head"><h3 id="usuario-titulo">Novo usuário</h3></div>
+                <div class="admin-body">
+                  <form id="form-usuario">
+                    <div class="form-row">
+                      <label class="full"><span>Nome</span><input id="usuario-nome" maxlength="100" required></label>
+                    </div>
+                    <div class="form-row">
+                      <label class="full"><span>Usuário</span><input id="usuario-login" autocomplete="off" autocapitalize="none" minlength="3" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{2,39}" required></label>
+                    </div>
+                    <div class="form-row">
+                      <label class="full"><span id="usuario-senha-label">Senha</span><input id="usuario-senha" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="usuario-senha-dica" required></label>
+                    </div>
+                    <p id="usuario-senha-dica" class="muted">Use pelo menos 12 caracteres.</p>
+                    <label class="usuario-ativo"><input id="usuario-ativo" type="checkbox" checked> Conta ativa</label>
+                    <button id="usuario-salvar" class="btn primary" type="submit">Criar conta</button>
+                  </form>
+                  <p id="usuario-status" class="status-msg" role="status"></p>
+                </div>
+              </div>
             </div>
           </div>
 

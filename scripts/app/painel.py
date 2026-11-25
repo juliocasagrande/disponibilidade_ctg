@@ -291,6 +291,9 @@ class ServidorPainel(BaseHTTPRequestHandler):
             return False
         return True
 
+    def configurar_html(self, html):
+        return html
+
     def do_GET(self):
         parsed = urlsplit(self.path)
         caminho = parsed.path
@@ -301,7 +304,7 @@ class ServidorPainel(BaseHTTPRequestHandler):
             if self.habilitar_pwa:
                 pwa_tag = '<link rel="manifest" href="/manifest.webmanifest">\n  <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}</script>'
                 html_txt = html_txt.replace('</head>', f'  {pwa_tag}\n</head>', 1)
-            self.enviar(200, html_txt.encode('utf-8'), 'text/html; charset=utf-8')
+            self.enviar(200, self.configurar_html(html_txt).encode('utf-8'), 'text/html; charset=utf-8')
         elif caminho == '/manifest.webmanifest':
             from .mobile import gerar_manifest_json
             self.enviar(200, gerar_manifest_json().encode('utf-8'), 'application/manifest+json; charset=utf-8')

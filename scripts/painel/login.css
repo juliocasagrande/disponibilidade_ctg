@@ -1,0 +1,132 @@
+:root {
+  color-scheme: light;
+  color: #162e42;
+  background: #f3f6fa;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 32px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 12% 14%, #e1edf6, #f3f6fa 60%);
+}
+
+.acesso {
+  width: min(100%, 960px);
+  min-height: 530px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #fff;
+  border: 1px solid #dde6ee;
+  border-radius: 22px;
+  box-shadow: 0 20px 64px #06243d15;
+  overflow: hidden;
+}
+
+.marca {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 36px;
+  padding: 45px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 110% 130%, #006c82, transparent 62%),
+              linear-gradient(150deg, #051d33 7%, #0d3659 100%);
+  color: #fff;
+}
+
+.marca::before,
+.marca::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  width: 440px;
+  aspect-ratio: 1;
+  left: 44%;
+  top: 20%;
+  border: 1px solid #5be5dc45;
+  border-radius: 50%;
+}
+.marca::after { left: 52%; top: 12%; border-color: #5bd6f545; }
+.logo { padding: 10px 12px; border-radius: 9px; background: #fff; }
+.logo img { display: block; height: auto; width: 135px; }
+.marca-texto h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3.3rem);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+.marca-texto h1::before {
+  content: "";
+  display: block;
+  width: 48px;
+  height: 4px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  background: linear-gradient(90deg, #46e0a0, #33c6f3);
+}
+.marca-texto p {
+  max-width: 27ch;
+  margin: 16px 0 0;
+  line-height: 1.55;
+  color: #d7e8f5;
+}
+
+.entrada { display: grid; align-items: center; padding: 48px; }
+.entrada-conteudo { width: 100%; max-width: 350px; margin: 0 auto; }
+h2 { margin: 0; color: #06243d; font-size: 1.85rem; letter-spacing: -0.035em; line-height: 1.12; }
+.entrada p { margin: 11px 0 25px; color: #526b80; line-height: 1.5; }
+form { display: grid; gap: 8px; }
+label { font-size: 0.9rem; font-weight: 600; color: #162e42; }
+input, button { font: inherit; }
+input {
+  min-width: 0;
+  height: 48px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px solid #becddb;
+  border-radius: 8px;
+  color: #162e42;
+  background: #fff;
+}
+button {
+  min-height: 48px;
+  margin-top: 3px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #fff;
+  background: #0066b3;
+  font-weight: 650;
+  cursor: pointer;
+}
+button:hover { background: #00548f; }
+input:focus-visible, button:focus-visible { outline: 3px solid #0076bc; outline-offset: 3px; }
+.entrada .erro {
+  margin: 0 0 6px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: #fff1ef;
+  color: #9e2c25;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 740px) {
+  body { padding: 16px; }
+  .acesso { max-width: 475px; min-height: 0; grid-template-columns: 1fr; }
+  .marca { gap: 27px; padding: 26px; }
+  .logo img { width: 106px; }
+  .marca-texto h1 { font-size: 2.15rem; }
+  .marca-texto h1::before { margin-bottom: 13px; }
+  .marca-texto p { max-width: 33ch; margin-top: 10px; }
+  .entrada { padding: 28px 26px 32px; }
+  .entrada-conteudo { max-width: none; }
+}

@@ -1032,6 +1032,26 @@ tbody tr.row-override:hover { background: #fff3dc; }
 .admin-tab.ativa { background: var(--navy); color: #fff; }
 
 .admin-body { padding: 18px 22px 22px; }
+
+.sessao-painel { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.sessao-painel span {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.usuarios-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr); gap: 18px; align-items: start; }
+.usuarios-grid .card-head { flex-wrap: wrap; gap: 10px; }
+#usuarios-tabela { text-align: left; }
+#usuarios-tabela td { white-space: normal; overflow-wrap: anywhere; }
+#form-usuario .muted { margin: 0 0 14px; font-size: 0.82rem; }
+.usuario-ativo { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; }
+.usuario-ativo input { accent-color: var(--blue); }
+@media (max-width: 1050px) {
+  .usuarios-grid { grid-template-columns: 1fr; }
+}
 .form-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .form-row label { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 .form-row label.full { flex: 1 0 100%; }
