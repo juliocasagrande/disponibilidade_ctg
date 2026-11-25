@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#051d33">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CTG FID">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>CTG Brasil | Disponibilidade e FID</title>
+  <link rel="icon" type="image/png" href="data:image/png;base64,__LOGO_CTG__">
+  <link rel="apple-touch-icon" href="data:image/png;base64,__LOGO_CTG__">
+  __PWA_HEAD__
+  <style>__ESTILO__</style>
+</head>
+<body>
+<div class="app-shell">
+  <div id="mob-sheet-backdrop" class="mob-sheet-backdrop" aria-hidden="true"></div>
+  <aside class="sidebar" id="sidebar" aria-label="Navegação principal">
+    <div class="mob-sheet-head" id="mob-sheet-head">
+      <div class="mob-sheet-grabber" aria-hidden="true"></div>
+      <div class="mob-sheet-titlebar">
+        <div>
+          <strong id="mob-sheet-title">Filtros</strong>
+          <span id="mob-sheet-sub" class="mob-sheet-sub">Refine os dados exibidos</span>
+        </div>
+        <div class="mob-sheet-actions">
+          <button id="mob-sheet-clear" class="mob-sheet-clear" type="button" hidden>Limpar</button>
+          <button id="mob-sheet-close" class="mob-sheet-close" type="button" aria-label="Fechar filtros">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="brand">
+      <div class="brand-lockup">
+        <img class="brand-emblem" src="data:image/png;base64,__LOGO_CTG__" alt="CTG Brasil" width="38" height="38">
+        <span class="brand-wordmark" aria-hidden="true"><strong>CTG</strong><em>Brasil</em></span>
+      </div>
+    </div>
+
+    <div class="sidebar-scroll">
+      <nav class="nav-list" aria-label="Páginas da aplicação">
+        <button id="aba-atual" class="nav-item ativa" data-page="atual" aria-current="page">
+          <span class="nav-ico" aria-hidden="true">◉</span>
+          <span>Visão Geral</span>
+        </button>
+        <button id="aba-simulacao" class="nav-item" data-page="simulacao">
+          <span class="nav-ico" aria-hidden="true">◈</span>
+          <span>Simulador FID</span>
+        </button>
+        <button id="aba-manutencoes" class="nav-item" data-page="manutencoes">
+          <span class="nav-ico" aria-hidden="true">◫</span>
+          <span>Paradas Programadas</span>
+        </button>
+        <button id="aba-projecao" class="nav-item" data-page="projecao">
+          <span class="nav-ico" aria-hidden="true">◬</span>
+          <span>Projeção 2028 (SIN)</span>
+        </button>
+        <button id="aba-metodologia" class="nav-item" data-page="metodologia">
+          <span class="nav-ico" aria-hidden="true">◎</span>
+          <span>Metodologia &amp; ONS</span>
+        </button>
+      </nav>
+
+      <!-- Filtros contextuais na sidebar -->
+      <div class="sidebar-filters" id="sidebar-filters">
+        <div class="sf-title" id="sf-title">Filtros</div>
+
+        <div class="sf-group" id="sf-polo-usina">
+          <label class="sf-field">
+            <span>Polo</span>
+            <select id="polo" aria-label="Filtrar por polo"></select>
+          </label>
+          <label class="sf-field">
+            <span>Usina</span>
+            <select id="usina" aria-label="Filtrar por usina"></select>
+          </label>
+        </div>
+
+        <div class="sf-group" id="sf-atual">
+          <label class="sf-field">
+            <span>Mês apurado</span>
+            <select id="mes-atual" aria-label="Mês apurado"></select>
+          </label>
+        </div>
+
+        <div class="sf-group" id="sf-simulacao" hidden>
+          <label class="sf-field">
+            <span>Horizonte (meses)</span>
+            <input id="horizonte" type="number" min="1" max="120" step="1" value="24">
+          </label>
+        </div>
+
+        <div class="sf-group" id="sf-manutencoes" hidden>
+          <label class="sf-field">
+            <span>Ano</span>
+            <select id="manut-ano" aria-label="Filtrar por ano"></select>
+          </label>
+          <label class="sf-field">
+            <span>Tipo</span>
+            <select id="manut-tipo" aria-label="Filtrar por tipo"></select>
+          </label>
+          <label class="sf-field">
+            <span>Classificador ONS</span>
+            <select id="manut-classificador" aria-label="Filtrar por classificador ONS"></select>
+          </label>
+          <label class="sf-field">
+            <span>Status</span>
+            <select id="manut-status" aria-label="Filtrar por status">
+              <option value="plano">Ativas no Plano (c/ Expurgos)</option>
+              <option value="ativas">Somente c/ HDP &gt; 0</option>
+              <option value="expurgadas">Com Expurgo ONS</option>
+              <option value="todas">Todas (incl. Canceladas)</option>
+              <option value="canceladas">Somente Canceladas</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="sf-group" id="sf-projecao" hidden>
+          <div class="sf-slider">
+            <div class="sf-slider-head"><span>Fator TEIFa</span><strong id="val-fator-teif">1,00×</strong></div>
+            <input id="fator-teif" type="range" min="0.70" max="1.30" step="0.01" value="1.00">
+          </div>
+          <div class="sf-slider">
+            <div class="sf-slider-head"><span>Fator TEIP</span><strong id="val-fator-teip">1,00×</strong></div>
+            <input id="fator-teip" type="range" min="0.70" max="1.30" step="0.01" value="1.00">
+          </div>
+          <div class="sf-checks">
+            <label class="sf-check"><input id="chk-excluir-pimental" type="checkbox"><span>Retirar Pimental (F2)</span></label>
+            <label class="sf-check"><input id="chk-excluir-belomonte" type="checkbox"><span>Retirar Belo Monte (F5)</span></label>
+            <label class="sf-check"><input id="chk-incluir-itaipu" type="checkbox"><span>Incluir Itaipu 20 UGs (F5)</span></label>
+          </div>
+          <button id="proj-reset" class="sf-reset-btn">Restaurar Padrão</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mob-sheet-foot" id="mob-sheet-foot">
+      <button id="mob-sheet-apply" class="btn primary mob-sheet-apply" type="button">Aplicar e Ver Resultados</button>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="pill-base" id="base"></div>
+      <button id="aba-admin" class="admin-lock-btn" data-page="admin" title="Administrador" aria-label="Administrador">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="mob-header" id="mob-header" aria-label="Cabeçalho mobile">
+      <div class="mob-header-left">
+        <img class="mob-emblem" src="data:image/png;base64,__LOGO_CTG__" alt="CTG Brasil" width="34" height="34">
+        <div class="mob-title-wrap">
+          <strong id="mob-page-title">Visão Geral</strong>
+          <span id="mob-page-sub" class="mob-page-sub">CTG Brasil · Disponibilidade</span>
+        </div>
+      </div>
+      <div class="mob-header-right">
+        <button id="mob-btn-filtros" class="mob-filter-trigger" type="button" aria-label="Abrir filtros">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+          <span>Filtros</span>
+          <span id="mob-filter-badge" class="mob-filter-badge" hidden>0</span>
+        </button>
+        <button id="mob-btn-admin" class="mob-icon-btn" type="button" data-page="admin" title="Administrador" aria-label="Administrador">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </button>
+        <button id="mob-btn-logout" class="mob-logout-pill" type="button" hidden>Sair</button>
+      </div>
+    </header>
+
+    <div class="mob-filter-strip" id="mob-filter-strip" aria-label="Resumo dos filtros">
+      <div class="mob-filter-chips" id="mob-filter-chips"></div>
+    </div>
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="btn-menu" class="btn-icon" aria-label="Abrir menu" title="Menu">☰</button>
+        <h1 id="page-title">Situação Atual das Usinas</h1>
+      </div>
+      <div class="topbar-right">
+        <span id="periodo-atual" class="topbar-meta"></span>
+        <button id="btn-admin-logout" class="btn secondary" hidden>Sair da sessão</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- ==================== 1. VISÃO GERAL (ATUAL) ==================== -->
+      <section id="atual" class="page" aria-label="Visão Geral">
+        <div id="contexto-atual" class="sim-bar scope-bar" hidden>
+          <div class="sim-bar-info">
+            <strong id="contexto-atual-titulo"></strong>
+            <p id="contexto-atual-sub" class="muted"></p>
+          </div>
+          <div class="sim-bar-controls">
+            <button id="btn-atual-simular" class="btn primary" type="button" hidden>Simular FID</button>
+            <button id="btn-atual-limpar" class="btn secondary" type="button">Limpar filtro</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="kpis-atual"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3 id="titulo-grafico-atual">Disponibilidade por usina</h3>
+            <div class="card-tools">
+              <div class="segmented" id="toggle-metrica-atual" role="group" aria-label="Métrica do gráfico">
+                <button class="seg ativa" data-metric="id">ID (%)</button>
+                <button class="seg" data-metric="fid">FID Bruto</button>
+                <button class="seg" data-metric="taxas">TEIFa × TEIP</button>
+              </div>
+            </div>
+          </div>
+          <div id="grafico-atual" class="chart-box"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Indicadores Consolidados por Usina</h3>
+          </div>
+          <div class="table-wrap"><table id="tabela-atual"></table></div>
+        </div>
+
+        <details class="card card-collapsible" id="card-horas">
+          <summary class="card-head">
+            <h3>Horas Apuradas por Unidade Geradora</h3>
+            <div class="card-toggle-meta">
+              <span id="horas-contagem" class="tag"></span>
+              <span class="card-toggle-hint" aria-hidden="true"></span>
+              <span class="card-chevron" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </div>
+          </summary>
+          <div class="table-wrap"><table id="tabela-horas"></table></div>
+        </details>
+      </section>
+
+      <!-- ==================== 2. SIMULADOR FID ==================== -->
+      <section id="simulacao" class="page" hidden aria-label="Simulador FID">
+        <div id="escolha-usina" class="alert info">
+          Selecione uma usina no filtro lateral para simular.
+        </div>
+
+        <div id="conteudo-simulacao" hidden>
+          <div class="sim-bar">
+            <div class="sim-bar-info">
+              <strong id="nome-cenario"></strong>
+              <p id="referencia-fonte" class="muted"></p>
+            </div>
+            <div class="sim-bar-controls">
+              <label class="field-inline">
+                <span>ID Referência (%)</span>
+                <input id="id-referencia" type="number" min="0.000001" max="100" step="0.0001">
+              </label>
+              <button id="restaurar-referencia" class="btn secondary">Ref. MME 2022</button>
+              <button id="usar-ref-2028" class="btn secondary">Ref. Faixa 2028</button>
+            </div>
+          </div>
+
+          <div class="kpi-grid" id="kpis-simulacao"></div>
+
+          <div class="two-col sim-tools-grid">
+            <div class="card compact">
+              <div class="card-head">
+                <h3>Margem de Segurança (FID ≥ 1,000)</h3>
+                <span id="headroom-badge" class="tag"></span>
+              </div>
+              <div id="box-headroom" class="headroom-box"></div>
+            </div>
+
+            <div class="card compact">
+              <div class="card-head">
+                <h3>Ações Rápidas &amp; Estresse</h3>
+                <span class="tag">Plano &amp; Sensibilidade</span>
+              </div>
+              <div class="stress-panel">
+                <div class="stress-section">
+                  <div class="stress-row">
+                    <button id="btn-carregar-plano" class="btn primary" type="button">↻ Carregar Paradas Programadas</button>
+                    <button id="btn-zerar-tudo" class="btn secondary" type="button">Zerar Horizonte</button>
+                  </div>
+                  <label class="stress-toggle">
+                    <input id="chk-sim-expurgo" type="checkbox" checked>
+                    <span>
+                      <strong>Aplicar expurgos ONS</strong>
+                      <small>GIM · GIS · GMT · GRE → <code>HRD</code> / <code>HDCE</code></small>
+                    </span>
+                  </label>
+                </div>
+                <div class="stress-section stress-inject">
+                  <div class="stress-section-title">Injetar Estresse Pontual</div>
+                  <div class="stress-form">
+                    <label><span>Mês</span><select id="stress-mes"></select></label>
+                    <label><span>UG</span><select id="stress-ug"></select></label>
+                    <label><span>Tipo</span>
+                      <select id="stress-tipo">
+                        <option value="HDF">HDF (Forçada)</option>
+                        <option value="HDP">HDP (Programada)</option>
+                        <option value="HEDF">HEDF (Restr. Forçada)</option>
+                        <option value="HEDP">HEDP (Restr. Prog.)</option>
+                      </select>
+                    </label>
+                    <label><span>Dias</span><input id="stress-dias" type="number" min="1" max="31" value="10"></label>
+                    <button id="btn-aplicar-stress" class="btn accent" type="button">+ Aplicar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="erro-simulacao" class="alert error" role="alert" hidden></div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Trajetória Projetada (60 Meses)</h3>
+              <div class="card-tools">
+                <div class="segmented" id="toggle-metrica-sim" role="group" aria-label="Métrica da simulação">
+                  <button class="seg ativa" data-metric="id">ID (%)</button>
+                  <button class="seg" data-metric="fid">FID Bruto / MRA</button>
+                  <button class="seg" data-metric="taxas">TEIFa &amp; TEIP</button>
+                </div>
+              </div>
+            </div>
+            <div id="grafico-simulacao" class="chart-box tall"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Editor de Horas por Unidade Geradora</h3>
+              <div class="card-tools">
+                <label class="field-inline">
+                  <span>Mês projetado</span>
+                  <select id="mes-edicao"></select>
+                </label>
+                <button id="limpar-mes" class="btn secondary">Limpar mês</button>
+              </div>
+            </div>
+            <div id="paradas-mes-resumo" class="strip-info" hidden></div>
+            <div class="table-wrap"><table id="tabela-editor"></table></div>
+          </div>
+
+          <div class="card card-collapsible-wrap" id="card-simulacao">
+            <details class="card-collapsible" id="details-simulacao">
+              <summary class="card-head">
+                <h3>Resultado Mês a Mês da Janela Móvel</h3>
+                <div class="card-toggle-meta">
+                  <button id="salvar-cenario" class="btn primary" type="button">Salvar Cenário em Parquet</button>
+                  <span id="simulacao-contagem" class="tag"></span>
+                  <span class="card-toggle-hint" aria-hidden="true"></span>
+                  <span class="card-chevron" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                  </span>
+                </div>
+              </summary>
+              <div class="table-wrap"><table id="tabela-simulacao"></table></div>
+            </details>
+            <div id="estado-salvar" class="status-msg" role="status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 3. PARADAS PROGRAMADAS ==================== -->
+      <section id="manutencoes" class="page" hidden aria-label="Paradas Programadas">
+        <div id="contexto-manut" class="sim-bar scope-bar" hidden>
+          <div class="sim-bar-info">
+            <strong id="contexto-manut-titulo"></strong>
+            <p id="contexto-manut-sub" class="muted"></p>
+          </div>
+          <div class="sim-bar-controls">
+            <button id="btn-manut-simular" class="btn primary" type="button" hidden>Simular FID</button>
+            <button id="btn-manut-limpar" class="btn secondary" type="button">Limpar filtro</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="kpis-manut"></div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head">
+              <h3>Horas Programadas por Mês e Tipo</h3>
+            </div>
+            <div id="grafico-manut-mensal" class="chart-box"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Horas por Usina no Período</h3>
+            </div>
+            <div id="grafico-manut-usina" class="chart-box"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Cronograma Visual de Intervenções (Gantt)</h3>
+          </div>
+          <div id="grafico-manut-gantt" class="chart-box tall"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Catálogo de Intervenções</h3>
+              <p class="muted" id="contagem-manut"></p>
+            </div>
+            <input id="manut-busca" type="search" class="search-input" placeholder="Buscar descrição, UG, tipo, classificador...">
+          </div>
+          <div class="table-wrap"><table id="tabela-manut"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Auditoria de Franquias Regulatórias ONS (GIM · GMT)</h3>
+              <p class="muted" id="resumo-franquias"></p>
+            </div>
+            <span class="tag">RO-AO.BR.04 Rev. 47 · Item 7.1.3.2</span>
+          </div>
+          <div class="table-wrap"><table id="tabela-franquias"></table></div>
+        </div>
+      </section>
+
+      <!-- ==================== 4. PROJEÇÃO 2028 (SIN) ==================== -->
+      <section id="projecao" class="page" hidden aria-label="Projeção 2028">
+        <div class="kpi-grid" id="kpis-proj"></div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head">
+              <h3>Referência 2022 × Projeção 2028 por Faixa</h3>
+            </div>
+            <div id="grafico-proj-faixas" class="chart-box"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>12 UHEs CTG vs. Faixa 2028</h3>
+            </div>
+            <div id="grafico-proj-ctg" class="chart-box"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Faixas de Potência Unitária (MW/UG)</h3>
+          </div>
+          <div class="table-wrap"><table id="tabela-proj-faixas"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Usinas CTG Brasil por Polo</h3>
+          </div>
+          <div class="table-wrap"><table id="tabela-proj-ctg"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Validação 2022 (Anexo I)</h3>
+          </div>
+          <div class="table-wrap"><table id="tabela-validacao-2022"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Configuração de Usinas SIN (Base de Cálculo)</h3>
+              <p class="muted" id="sin-cfg-resumo"></p>
+            </div>
+            <div class="card-tools">
+              <select id="sin-filtro-faixa" aria-label="Filtrar por faixa">
+                <option value="">Todas as faixas</option>
+                <option value="1">Faixa 1 (≤ 29 MW)</option>
+                <option value="2">Faixa 2 (29–59 MW)</option>
+                <option value="3">Faixa 3 (59–199 MW)</option>
+                <option value="4">Faixa 4 (199–499 MW)</option>
+                <option value="5">Faixa 5 (499–1300 MW)</option>
+                <option value="0">Sem faixa</option>
+              </select>
+              <select id="sin-filtro-status" aria-label="Filtrar por situação">
+                <option value="">Todas as usinas</option>
+                <option value="ativas">No cálculo</option>
+                <option value="fora">Fora do cálculo</option>
+                <option value="alteradas">Alteradas manualmente</option>
+                <option value="ctg">Somente CTG Brasil</option>
+              </select>
+              <input id="sin-busca" type="search" class="search-input" placeholder="Buscar usina ou CEG...">
+              <button id="sin-reset-overrides" class="btn secondary">Restaurar seleção</button>
+            </div>
+          </div>
+          <div class="table-wrap"><table id="tabela-sin-config"></table></div>
+        </div>
+      </section>
+
+      <!-- ==================== 5. METODOLOGIA & ONS ==================== -->
+      <section id="metodologia" class="page" hidden aria-label="Metodologia e ONS">
+        <div class="formula-grid">
+          <div class="formula-card">
+            <span class="formula-tag">TEIFa · Forçada</span>
+            <div class="formula-expr">TEIFa = Σ[ P · (HDF + HEDF) ] / Σ[ P · (HDF + HEDF + HS + HDCE + HRD) ]</div>
+            <p>Janela móvel de 60 meses, ponderada pela potência efetiva <strong>P</strong>.</p>
+          </div>
+          <div class="formula-card">
+            <span class="formula-tag">TEIP · Programada</span>
+            <div class="formula-expr">TEIP = Σ[ P · (HDP + HEDP) ] / Σ[ P · HP ]</div>
+            <p>Paradas programadas do plano plurianual entram em <strong>HDP</strong>.</p>
+          </div>
+          <div class="formula-card">
+            <span class="formula-tag">ID &amp; FID (MRA)</span>
+            <div class="formula-expr">ID = (1 − TEIFa) × (1 − TEIP) &nbsp;|&nbsp; FID = min(1, ID / ID_ref)</div>
+            <p>Referências oficiais por CEG da <strong>Portaria MME 709/2022</strong>.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Estados Operativos (ONS RO-AO.BR.04)</h3>
+          </div>
+          <div class="glossary-grid">
+            <div><strong>HP</strong><span>Horas do Período</span></div>
+            <div><strong>HS</strong><span>Horas em Serviço</span></div>
+            <div><strong>HDP</strong><span>Desligamento Programado</span></div>
+            <div><strong>HDF</strong><span>Desligamento Forçado</span></div>
+            <div><strong>HEDP</strong><span>Restrição Programada (equiv.)</span></div>
+            <div><strong>HEDF</strong><span>Restrição Forçada (equiv.)</span></div>
+            <div><strong>HRD</strong><span>Reserva Desligada (incl. expurgos 7.1.3.2)</span></div>
+            <div><strong>HDCE</strong><span>Condições Externas (incl. expurgos 7.1.3.3)</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Classificadores de Origem e Regras de Expurgo (ONS RO-AO.BR.04 Rev. 47)</h3>
+              <p class="muted">Item 7.1.3 e Anexo 2 · Vigência 25/06/2026 · REN ANEEL nº 1.033/2022</p>
+            </div>
+            <span class="tag">13 Classificadores Oficiais</span>
+          </div>
+          <div class="expurgo-rules-banner">
+            <div><strong>Consumo Cronológico (Item 5.2.4):</strong> Franquias de expurgo (como GIM 12 meses/UG) são consumidas continuamente a partir do início da intervenção; apenas o excedente passa para <code>GUM</code> (<code>HDP</code>).</div>
+            <div><strong>Precedência em Sobreposições (Item 5.2.7):</strong> Quando há duas origens simultâneas na mesma UG, origens expurgadas (7.1.3.2 → <code>HRD</code> / 7.1.3.3 → <code>HDCE</code>) prevalecem sobre 7.1.3.1 (<code>GUM</code>).</div>
+            <div><strong>Efeito nas Taxas:</strong> Horas expurgadas não entram no numerador de <code>TEIP</code> nem de <code>TEIFa</code> e permanecem no denominador de <code>TEIFa</code> via <code>HRD</code>/<code>HDCE</code> (não penalizando o ID/FID).</div>
+          </div>
+          <div class="table-wrap"><table id="tabela-classificadores"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Conciliação ONS</h3>
+            <span class="tag" id="badge-conciliacao"></span>
+          </div>
+          <div class="table-wrap"><table id="tabela-conciliacao"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Auditoria de Fechamento de Horas</h3>
+          </div>
+          <div class="table-wrap"><table id="tabela-auditoria"></table></div>
+        </div>
+      </section>
+
+      <!-- ==================== 6. ADMINISTRADOR ==================== -->
+      <section id="admin" class="page" hidden aria-label="Administrador">
+        <div id="admin-offline" class="alert warn" hidden>
+          <p style="margin:0 0 8px">Inicie o servidor local com <code>python scripts/executar.py --painel</code> (ou com <code>--host 0.0.0.0</code> para acesso na rede Wi-Fi) para acessar a aba Administrador.</p>
+          <div id="mobile-api-config" class="mobile-api-config" hidden>
+            <div class="form-row" style="margin-bottom:8px">
+              <label class="full"><span>URL do Servidor CTG (opcional para App Mobile)</span>
+                <input id="api-base-url" type="url" placeholder="http://192.168.1.100:8765">
+              </label>
+            </div>
+            <div class="btn-group">
+              <button id="btn-salvar-api-url" class="btn primary" type="button">Conectar Servidor</button>
+              <button id="btn-limpar-api-url" class="btn secondary" type="button">Usar Modo Offline</button>
+            </div>
+            <div id="api-url-status" class="status-msg" style="padding:8px 0 0"></div>
+          </div>
+        </div>
+
+        <div id="admin-login-box" class="login-card" hidden>
+          <div class="login-ico" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <h3>Acesso Restrito</h3>
+          <form id="form-admin-login" class="login-form">
+            <input id="admin-senha" type="password" placeholder="Senha de administrador" autocomplete="current-password" required>
+            <button type="submit" class="btn primary">Entrar</button>
+          </form>
+          <div id="admin-login-erro" class="alert error" hidden></div>
+        </div>
+
+        <div id="admin-conteudo" hidden>
+          <div class="admin-tabs" role="tablist">
+            <button class="admin-tab ativa" data-atab="pipeline">Atualizar Dados &amp; Scripts</button>
+            <button class="admin-tab" data-atab="fontes">Manutenções (Excel / Banco)</button>
+            <button class="admin-tab" data-atab="parquet">Explorador Parquet</button>
+            <button class="admin-tab" data-atab="sql">Console SQL (DuckDB)</button>
+            <button class="admin-tab" data-atab="seguranca">Segurança</button>
+          </div>
+
+          <div id="atab-pipeline" class="atab-pane">
+            <div class="two-col">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Execução do Pipeline</h3>
+                </div>
+                <div class="admin-body">
+                  <div class="form-row">
+                    <label><span>Ano inicial ONS</span><input id="adm-ano-ini" type="number" min="2015" max="2035" value="2020"></label>
+                    <label><span>Ano final ONS</span><input id="adm-ano-fim" type="number" min="2015" max="2035" value="2026"></label>
+                  </div>
+                  <div class="form-row">
+                    <label class="full"><span>URL Portaria MME (opcional)</span>
+                      <input id="adm-ref-url" type="url" placeholder="https://www.gov.br/mme/...">
+                    </label>
+                  </div>
+                  <div class="btn-group">
+                    <button id="btn-run-recalcular" class="btn primary">▶ Recalcular Local</button>
+                    <button id="btn-run-atualizar" class="btn accent">⬇ Baixar ONS/MME + Recalcular</button>
+                    <button id="btn-run-baixar" class="btn secondary">⬇ Somente Baixar</button>
+                  </div>
+                  <div class="btn-group" style="margin-top:10px">
+                    <button id="btn-reload-dados" class="btn secondary">↻ Recarregar Interface</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3>Console de Execução</h3>
+                    <p class="muted" id="job-status-text">Aguardando comando.</p>
+                  </div>
+                  <span class="badge" id="job-status-badge">Ocioso</span>
+                </div>
+                <pre id="job-logs" class="terminal">Pronto para executar.</pre>
+              </div>
+            </div>
+          </div>
+
+          <div id="atab-fontes" class="atab-pane" hidden>
+            <div class="two-col">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Upload de Planilha de Manutenções</h3>
+                </div>
+                <div class="admin-body">
+                  <input id="upload-excel-input" type="file" accept=".xlsx,.xlsm">
+                  <div class="btn-group" style="margin-top:14px">
+                    <button id="btn-upload-excel" class="btn primary">⬆ Enviar e Recalcular</button>
+                  </div>
+                  <div id="upload-status" class="status-msg"></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>Origem das Manutenções (Excel / Banco)</h3>
+                </div>
+                <div class="admin-body">
+                  <div class="form-row">
+                    <label><span>Origem ativa</span>
+                      <select id="cfg-origem">
+                        <option value="excel">Planilha Excel Local</option>
+                        <option value="database">Banco de Dados Externo</option>
+                      </select>
+                    </label>
+                    <label><span>Aba Excel</span><input id="cfg-excel-aba" type="text" value="Plano"></label>
+                  </div>
+                  <div class="form-row">
+                    <label class="full"><span>Caminho Excel</span><input id="cfg-excel-caminho" type="text"></label>
+                  </div>
+                  <div class="stress-divider"></div>
+                  <div class="form-row">
+                    <label><span>Tipo do Banco</span>
+                      <select id="cfg-db-tipo">
+                        <option value="postgresql">PostgreSQL</option>
+                        <option value="mssql">SQL Server</option>
+                        <option value="duckdb">DuckDB (arquivo)</option>
+                        <option value="sqlite">SQLite (arquivo)</option>
+                      </select>
+                    </label>
+                    <label><span>Host</span><input id="cfg-db-host" type="text" placeholder="db.ctgbr.internal"></label>
+                    <label><span>Porta</span><input id="cfg-db-porta" type="number" value="5432"></label>
+                  </div>
+                  <div class="form-row">
+                    <label><span>Banco</span><input id="cfg-db-banco" type="text" placeholder="operacao_ctg"></label>
+                    <label><span>Schema</span><input id="cfg-db-schema" type="text" value="public"></label>
+                    <label><span>Tabela</span><input id="cfg-db-tabela" type="text" value="manutencoes_programadas_ctg"></label>
+                  </div>
+                  <div class="form-row">
+                    <label><span>Usuário</span><input id="cfg-db-usuario" type="text"></label>
+                    <label><span>Var. Ambiente da Senha</span><input id="cfg-db-senha-env" type="text" value="CALC_ID_MANUT_DB_PASSWORD"></label>
+                  </div>
+                  <div class="form-row">
+                    <label class="full"><span>Caminho de arquivo (DuckDB / SQLite)</span><input id="cfg-db-arquivo" type="text" placeholder="C:/caminho/manutencoes.duckdb"></label>
+                  </div>
+                  <div class="btn-group">
+                    <button id="btn-salvar-cfg" class="btn primary">Salvar Configuração</button>
+                    <button id="btn-testar-db" class="btn secondary">Testar Conexão</button>
+                  </div>
+                  <div id="cfg-status" class="status-msg"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="atab-parquet" class="atab-pane" hidden>
+            <div class="parquet-layout">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Arquivos Parquet</h3>
+                  <button id="btn-refresh-parquets" class="btn secondary">↻</button>
+                </div>
+                <div id="lista-parquets" class="parquet-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3 id="pq-titulo">Selecione um Parquet</h3>
+                    <p class="muted" id="pq-meta"></p>
+                  </div>
+                  <div class="card-tools">
+                    <input id="pq-filtro" type="search" class="search-input" placeholder="Filtrar linhas...">
+                    <a id="pq-download" class="btn secondary" hidden download>⬇ Baixar</a>
+                  </div>
+                </div>
+                <div id="pq-esquema" class="schema-chips"></div>
+                <div class="table-wrap"><table id="tabela-parquet"></table></div>
+                <div class="card-foot" id="pq-paginacao" hidden>
+                  <span id="pq-info" class="muted"></span>
+                  <div class="btn-group">
+                    <button id="pq-prev" class="btn secondary">← Anterior</button>
+                    <button id="pq-next" class="btn secondary">Próxima →</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="atab-sql" class="atab-pane" hidden>
+            <div class="card">
+              <div class="card-head">
+                <h3>Console SQL (DuckDB)</h3>
+                <div class="card-tools">
+                  <select id="sql-exemplos" aria-label="Consultas de exemplo">
+                    <option value="">Consultas prontas…</option>
+                    <option value="SELECT usina, round(teifa_pct,3) AS teifa_pct, round(teip_pct,3) AS teip_pct, round(id_verificado_pct,3) AS id_pct, round(fid_bruto,5) AS fid_bruto, round(fid_mra,5) AS fid_mra FROM indicadores_disponibilidade_ctg WHERE mes_fim_historico=(SELECT max(mes_fim_historico) FROM indicadores_disponibilidade_ctg) ORDER BY fid_bruto ASC">Ranking FID atual</option>
+                    <option value="SELECT usina, extract(year FROM mes) AS ano, round(sum(horas_brutas),1) AS horas_brutas, round(sum(horas_expurgadas),1) AS expurgo_ons, round(sum(hdp_programado),1) AS hdp_liquido, sum(qtd_eventos) AS eventos FROM manutencoes_ug_mensal WHERE mes >= DATE '2026-01-01' GROUP BY 1, 2 ORDER BY 2, 5 DESC">Horas brutas, expurgo ONS e HDP líquido (2026+)</option>
+                    <option value="SELECT classificador, usina, numero_ug, periodo_anos, horas_expurgo_declarado, limite_franquia_horas, saldo_franquia_horas, uso_franquia_pct, status FROM auditoria_franquias_ons ORDER BY uso_franquia_pct DESC">Auditoria de franquias ONS (GIM / GMT)</option>
+                    <option value="SELECT * FROM projecao_faixas_sin ORDER BY faixa">Projeção 2028 por faixa SIN</option>
+                    <option value="SELECT * FROM conciliacao_ons WHERE mes_fim_historico=(SELECT max(mes_fim_historico) FROM conciliacao_ons) ORDER BY status DESC, usina">Conciliação ONS</option>
+                    <option value="SELECT usina, numero_ug, mes, hp, soma_horas, saldo_horas, ressalva_fechamento FROM auditoria_fechamento_horas ORDER BY mes, numero_ug">Auditoria de fechamento</option>
+                    <option value="SHOW TABLES">Listar tabelas e views</option>
+                  </select>
+                </div>
+              </div>
+              <div class="admin-body">
+                <textarea id="sql-editor" class="sql-textarea" rows="5" spellcheck="false">SELECT usina, round(teifa_pct,3) AS teifa_pct, round(teip_pct,3) AS teip_pct, round(id_verificado_pct,3) AS id_pct, round(fid_bruto,5) AS fid_bruto, round(fid_mra,5) AS fid_mra
+FROM indicadores_disponibilidade_ctg
+WHERE mes_fim_historico = (SELECT max(mes_fim_historico) FROM indicadores_disponibilidade_ctg)
+ORDER BY fid_bruto ASC;</textarea>
+                <div class="btn-group" style="margin-top:12px">
+                  <button id="btn-run-sql" class="btn primary">▶ Executar SQL</button>
+                  <button id="btn-export-sql-csv" class="btn secondary">⬇ Exportar CSV</button>
+                  <span id="sql-meta" class="muted" style="align-self:center;margin-left:8px"></span>
+                </div>
+                <div id="sql-erro" class="alert error" hidden></div>
+              </div>
+              <div class="table-wrap"><table id="tabela-sql"></table></div>
+            </div>
+          </div>
+
+          <div id="atab-seguranca" class="atab-pane" hidden>
+            <div class="card" style="max-width:520px">
+              <div class="card-head">
+                <h3>Alterar Senha</h3>
+              </div>
+              <div class="admin-body">
+                <form id="form-alterar-senha">
+                  <div class="form-row"><label class="full"><span>Senha atual</span><input id="sec-atual" type="password" required></label></div>
+                  <div class="form-row"><label class="full"><span>Nova senha (mín. 6 caracteres)</span><input id="sec-nova" type="password" minlength="6" required></label></div>
+                  <div class="form-row"><label class="full"><span>Confirmar nova senha</span><input id="sec-conf" type="password" minlength="6" required></label></div>
+                  <button type="submit" class="btn primary">Atualizar Senha</button>
+                </form>
+                <div id="sec-status" class="status-msg"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<nav class="mob-bottom-nav" id="mob-bottom-nav" aria-label="Navegação principal mobile">
+  <button id="mob-tab-atual" class="mob-tab ativa" type="button" data-page="atual" aria-current="page">
+    <span class="mob-tab-ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+    </span>
+    <span class="mob-tab-lbl">Geral</span>
+  </button>
+  <button id="mob-tab-simulacao" class="mob-tab" type="button" data-page="simulacao">
+    <span class="mob-tab-ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    </span>
+    <span class="mob-tab-lbl">Simular</span>
+  </button>
+  <button id="mob-tab-manutencoes" class="mob-tab" type="button" data-page="manutencoes">
+    <span class="mob-tab-ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    </span>
+    <span class="mob-tab-lbl">Paradas</span>
+  </button>
+  <button id="mob-tab-projecao" class="mob-tab" type="button" data-page="projecao">
+    <span class="mob-tab-ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7" rx="0.8"/><rect x="12" y="7" width="3" height="11" rx="0.8"/><rect x="17" y="4" width="3" height="14" rx="0.8"/></svg>
+    </span>
+    <span class="mob-tab-lbl">Proj. 2028</span>
+  </button>
+  <button id="mob-tab-metodologia" class="mob-tab" type="button" data-page="metodologia">
+    <span class="mob-tab-ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+    </span>
+    <span class="mob-tab-lbl">ONS</span>
+  </button>
+</nav>
+
+<script id="dados-painel" type="application/json">__DADOS__</script>
+<script>__ECHARTS__</script>
+<script>__MOTOR__</script>
+<script>__APP__</script>
+__NATIVE_BRIDGE__
+</body>
+</html>

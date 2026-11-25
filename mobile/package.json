@@ -1,0 +1,27 @@
+{
+  "name": "ctg-disponibilidade-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App mobile nativo (Android e iOS) do painel de Disponibilidade e FID da CTG Brasil",
+  "scripts": {
+    "prepare:web": "python -c \"import sys; sys.path.insert(0, '..'); from scripts.app.mobile import exportar_bundle_mobile; print(exportar_bundle_mobile('..'))\"",
+    "sync": "npm run prepare:web && npx cap sync",
+    "sync:android": "npm run prepare:web && npx cap sync android",
+    "sync:ios": "npm run prepare:web && npx cap sync ios",
+    "open:android": "npx cap open android",
+    "open:ios": "npx cap open ios",
+    "build:apk": "npm run sync:android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/haptics": "^7.0.2",
+    "@capacitor/ios": "^7.4.3",
+    "@capacitor/splash-screen": "^7.0.3",
+    "@capacitor/status-bar": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}

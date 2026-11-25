@@ -1,0 +1,26 @@
+{
+  "appId": "br.com.ctg.calcid",
+  "appName": "CTG Disponibilidade",
+  "webDir": "www",
+  "backgroundColor": "#051d33",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "launchAutoHide": true,
+      "backgroundColor": "#051d33",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#051d33",
+      "overlaysWebView": false
+    }
+  }
+}

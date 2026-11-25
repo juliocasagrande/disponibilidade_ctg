@@ -1,0 +1,16 @@
+**
+!Dockerfile
+!requirements.txt
+!scripts/
+!scripts/**
+!dados/
+!dados/ons/
+!dados/ons/parametros/
+!dados/ons/cadastro/
+!dados/ons/taxas/
+!dados/ons/parametros/TAXA_TEIF_TEIP_PARAM_*.parquet
+!dados/ons/cadastro/CAPACIDADE_GERACAO.parquet
+!dados/ons/taxas/TAXA_TEIF_TEIP.parquet
+!dados/mme/
+!dados/mme/REFERENCIAS_FID.parquet
+**/__pycache__/
