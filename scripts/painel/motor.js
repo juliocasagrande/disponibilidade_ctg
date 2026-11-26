@@ -375,6 +375,117 @@
     });
   }
 
+  /**
+   * Rateia uma manutencao simulada dia-a-dia por mes (YYYY-MM), seguindo a mesma regra
+   * cronologica de consumo de expurgo da rotina ONS RO-AO.BR.04 Rev. 47 (manutencoes.py).
+   *
+   * Nao persiste nem altera o banco oficial de manutencoes; retorna apenas o rateio
+   * mensal para injecao no cenario ativo do Simulador FID.
+   */
+  function ratearManutencaoSimulada(evento, opcoes = {}) {
+    const iniStr = String(evento?.data_inicio || '').slice(0, 10);
+    const fimStr = String(evento?.data_fim || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iniStr) || !/^\d{4}-\d{2}-\d{2}$/.test(fimStr)) {
+      throw new Error('Informe datas válidas de início e término.');
+    }
+    const dIni = new Date(`${iniStr}T00:00:00Z`);
+    const dFim = new Date(`${fimStr}T00:00:00Z`);
+    if (Number.isNaN(dIni.getTime()) || Number.isNaN(dFim.getTime()) || dFim < dIni) {
+      throw new Error('A data de término deve ser igual ou posterior à data de início.');
+    }
+    const duracaoDias = Math.round((dFim.getTime() - dIni.getTime()) / 86400000) + 1;
+    const retornoDiario = Boolean(evento.retorno_diario);
+    const taxaPadrao = retornoDiario ? 12 : 24;
+    const horasBrutasRaw =
+      evento.horas_brutas !== undefined && evento.horas_brutas !== null && evento.horas_brutas !== ''
+        ? Number(evento.horas_brutas)
+        : duracaoDias * taxaPadrao;
+    if (!Number.isFinite(horasBrutasRaw) || horasBrutasRaw <= 0) {
+      throw new Error('A quantidade de horas brutas deve ser maior que zero.');
+    }
+    const maxBrutas = duracaoDias * 24;
+    if (horasBrutasRaw > maxBrutas + 1e-6) {
+      throw new Error(`Horas brutas (${horasBrutasRaw.toFixed(1)} h) excedem o limite de 24 h/dia para ${duracaoDias} dia(s) (máx. ${maxBrutas} h).`);
+    }
+    const horasBrutas = Math.min(maxBrutas, horasBrutasRaw);
+
+    const aplicarExpurgos = opcoes.aplicarExpurgos !== false;
+    const expurgada = Boolean(evento.expurgada);
+    const expurgoInformado = Math.max(0, Number(evento.expurgo_horas) || 0);
+    if (!Number.isFinite(expurgoInformado)) {
+      throw new Error('Informe um valor numérico válido para horas de expurgo.');
+    }
+    const expurgoTotal = expurgada ? Math.min(horasBrutas, expurgoInformado) : 0;
+    const indispTotal = Math.max(0, horasBrutas - expurgoTotal);
+
+    const destinoExpurgo = evento.destino_expurgo === 'HDCE' ? 'HDCE' : 'HRD';
+    const campoImpacto = ['HDP', 'HDF', 'HEDP', 'HEDF'].includes(evento.campo_impacto)
+      ? evento.campo_impacto
+      : 'HDP';
+
+    const mesMin = opcoes.mesMin ? mesDe(opcoes.mesMin) : null;
+    const mesMax = opcoes.mesMax ? mesDe(opcoes.mesMax) : null;
+
+    const taxaDia = Math.min(24, horasBrutas / duracaoDias);
+    let expRestante = expurgoTotal;
+    const porMes = {};
+    let diasNoHorizonte = 0;
+    let diasForaHorizonte = 0;
+
+    for (let i = 0; i < duracaoDias; i++) {
+      const d = new Date(dIni.getTime() + i * 86400000);
+      const m = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const expD = Math.min(taxaDia, expRestante);
+      const indD = Math.max(0, taxaDia - expD);
+      expRestante = Math.max(0, expRestante - expD);
+
+      if ((mesMin && m < mesMin) || (mesMax && m > mesMax)) {
+        diasForaHorizonte += 1;
+        continue;
+      }
+      diasNoHorizonte += 1;
+      if (!porMes[m]) porMes[m] = { HDP: 0, HDF: 0, HEDP: 0, HEDF: 0, HRD: 0, HDCE: 0, dias: 0 };
+      porMes[m].dias += 1;
+      if (aplicarExpurgos) {
+        if (expD > 0) porMes[m][destinoExpurgo] += expD;
+        if (indD > 0) porMes[m][campoImpacto] += indD;
+      } else {
+        porMes[m][campoImpacto] += expD + indD;
+      }
+    }
+
+    const meses = Object.keys(porMes)
+      .sort()
+      .map(m => {
+        const s = porMes[m];
+        const out = { mes: m, dias: s.dias };
+        for (const c of CAMPOS) {
+          out[c] = Number(s[c].toFixed(2));
+        }
+        return out;
+      });
+
+    const destinoOns =
+      !aplicarExpurgos || expurgoTotal <= 1e-6
+        ? campoImpacto
+        : indispTotal <= 1e-6
+        ? destinoExpurgo
+        : `${destinoExpurgo} + ${campoImpacto}`;
+
+    return {
+      duracao_dias: duracaoDias,
+      horas_brutas: Number(horasBrutas.toFixed(2)),
+      expurgo_horas: Number(expurgoTotal.toFixed(2)),
+      indisponibilidade_horas: Number(indispTotal.toFixed(2)),
+      destino_expurgo: expurgoTotal > 0 ? destinoExpurgo : '',
+      destino_ons: destinoOns,
+      campo_impacto: campoImpacto,
+      dias_no_horizonte: diasNoHorizonte,
+      dias_fora_horizonte: diasForaHorizonte,
+      meses,
+    };
+  }
+
   root.MotorCTG = {
     CAMPOS,
     mesDe,
@@ -386,6 +497,7 @@
     calcularMargemHoras,
     calcularProjecao2028,
     resolverSinUsinasNoMes,
+    ratearManutencaoSimulada,
   };
   if (typeof module !== 'undefined') module.exports = root.MotorCTG;
 })(globalThis);

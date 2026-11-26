@@ -99,22 +99,272 @@
   }
 
   const charts = {};
+  const RESET_Y_ICON_PATH = 'path://M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
+
+  function arredondarEscalaY(valor, span) {
+    if (!Number.isFinite(valor)) return valor;
+    const mag = Math.abs(span || 1);
+    const casas = mag >= 100 ? 0 : mag >= 10 ? 1 : mag >= 1 ? 2 : mag >= 0.1 ? 3 : 4;
+    return Number(valor.toFixed(casas));
+  }
+
+  function limitesEixoYComRef(refVal, margem, casas = 2, teto = null) {
+    return {
+      min: v => {
+        const refMin = refVal - margem;
+        const base = Number.isFinite(v.min) ? Math.min(v.min - margem * 0.2, refMin) : refMin;
+        return Number(base.toFixed(casas));
+      },
+      max: v => {
+        const refMax = refVal + margem;
+        let topo = Number.isFinite(v.max) ? Math.max(v.max + margem * 0.2, refMax) : refMax;
+        if (teto !== null && topo > teto && (!Number.isFinite(v.max) || v.max <= teto)) {
+          topo = teto;
+        }
+        return Number(topo.toFixed(casas));
+      },
+    };
+  }
+
+  function anexarAjusteEixoY(instance, dom, origSetOption) {
+    const estado = {
+      habilitado: false,
+      baseYAxis: null,
+      arrastando: null,
+      badgeTimer: null,
+    };
+    instance.__yScale = estado;
+
+    function obterGeometriaY() {
+      try {
+        const model = instance.getModel();
+        const gridComp = model?.getComponent('grid', 0);
+        const yComp = model?.getComponent('yAxis', 0);
+        const rect = gridComp?.coordinateSystem?.getRect();
+        const extent = yComp?.axis?.scale?.getExtent();
+        if (!rect || !extent || extent.length < 2) return null;
+        if (!Number.isFinite(extent[0]) || !Number.isFinite(extent[1])) return null;
+        return { rect, min: extent[0], max: extent[1] };
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function mostrarPillY(texto, fixo = false) {
+      let pill = dom.querySelector('.chart-yscale-pill');
+      if (!pill) {
+        pill = document.createElement('div');
+        pill.className = 'chart-yscale-pill';
+        dom.appendChild(pill);
+      }
+      pill.textContent = texto;
+      pill.classList.add('visivel');
+      clearTimeout(estado.badgeTimer);
+      if (!fixo) {
+        estado.badgeTimer = setTimeout(() => pill.classList.remove('visivel'), 1500);
+      }
+    }
+
+    function aplicarEscalaY(minVal, maxVal, fixo = true) {
+      if (!Number.isFinite(minVal) || !Number.isFinite(maxVal) || maxVal <= minVal) return;
+      const span = maxVal - minVal;
+      const rMin = arredondarEscalaY(minVal, span);
+      const rMax = arredondarEscalaY(maxVal, span);
+      if (rMax <= rMin) return;
+      origSetOption({ yAxis: { min: rMin, max: rMax } });
+      const casas = span >= 100 ? 0 : span >= 10 ? 1 : span >= 1 ? 2 : 3;
+      mostrarPillY(`Eixo Y: ${numero(rMin, casas)} a ${numero(rMax, casas)} · 2× clique p/ resetar`, fixo);
+    }
+
+    function resetarEscalaY() {
+      if (!estado.habilitado || !estado.baseYAxis) return;
+      const b = estado.baseYAxis;
+      origSetOption({
+        yAxis: {
+          min: b.min !== undefined ? b.min : null,
+          max: b.max !== undefined ? b.max : null,
+          scale: b.scale !== undefined ? b.scale : false,
+        },
+      });
+      mostrarPillY('Eixo Y restaurado para automático', false);
+    }
+    estado.resetar = resetarEscalaY;
+
+    function estaNaFaixaY(ev) {
+      if (!estado.habilitado) return null;
+      const geo = obterGeometriaY();
+      if (!geo) return null;
+      const alvoBox = dom.querySelector('canvas') || dom;
+      const box = alvoBox.getBoundingClientRect();
+      const relX = ev.clientX - box.left;
+      const relY = ev.clientY - box.top;
+      const { rect } = geo;
+      if (relX >= -6 && relX <= rect.x + 12 && relY >= rect.y - 12 && relY <= rect.y + rect.height + 12) {
+        const ratio = Math.max(0, Math.min(1, (relY - rect.y) / Math.max(1, rect.height)));
+        return { geo, ratio };
+      }
+      return null;
+    }
+
+    const onPointerMove = ev => {
+      if (estado.arrastando) {
+        ev.preventDefault();
+        const { startY, min0, max0, span0, height, mode } = estado.arrastando;
+        const dy = ev.clientY - startY;
+        const minSpan = Math.max(1e-4, span0 * 0.02);
+        let novoMin = min0;
+        let novoMax = max0;
+
+        if (mode === 'pan' || ev.shiftKey) {
+          const delta = (dy / Math.max(40, height)) * span0;
+          novoMin = min0 + delta;
+          novoMax = max0 + delta;
+        } else if (mode === 'max') {
+          const fator = Math.exp((dy / Math.max(40, height)) * 2.2);
+          novoMax = min0 + Math.max(minSpan, span0 * fator);
+        } else if (mode === 'min') {
+          const fator = Math.exp((-dy / Math.max(40, height)) * 2.2);
+          novoMin = max0 - Math.max(minSpan, span0 * fator);
+        } else {
+          const fator = Math.exp((dy / Math.max(40, height)) * 2.4);
+          const meio = (min0 + max0) / 2;
+          const meiaLarg = Math.max(minSpan / 2, (span0 / 2) * fator);
+          novoMin = meio - meiaLarg;
+          novoMax = meio + meiaLarg;
+        }
+        aplicarEscalaY(novoMin, novoMax, true);
+        return;
+      }
+      const hit = estaNaFaixaY(ev);
+      if (hit) {
+        dom.classList.add('chart-yscale-hover');
+      } else {
+        dom.classList.remove('chart-yscale-hover');
+      }
+    };
+
+    const onPointerDown = ev => {
+      if (ev.button !== 0) return;
+      const hit = estaNaFaixaY(ev);
+      if (!hit) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const { geo, ratio } = hit;
+      const span0 = Math.max(1e-6, geo.max - geo.min);
+      const mode = ev.shiftKey ? 'pan' : ratio < 0.28 ? 'max' : ratio > 0.72 ? 'min' : 'scale';
+      estado.arrastando = {
+        pointerId: ev.pointerId,
+        startY: ev.clientY,
+        min0: geo.min,
+        max0: geo.max,
+        span0,
+        height: geo.rect.height,
+        mode,
+      };
+      dom.classList.add('chart-yscale-dragging');
+      try { dom.setPointerCapture(ev.pointerId); } catch (_) {}
+    };
+
+    const encerrarArraste = ev => {
+      if (!estado.arrastando) return;
+      const pid = estado.arrastando.pointerId;
+      estado.arrastando = null;
+      dom.classList.remove('chart-yscale-dragging');
+      try { dom.releasePointerCapture(pid); } catch (_) {}
+      const pill = dom.querySelector('.chart-yscale-pill');
+      if (pill) {
+        clearTimeout(estado.badgeTimer);
+        estado.badgeTimer = setTimeout(() => pill.classList.remove('visivel'), 1500);
+      }
+    };
+
+    const onDblClick = ev => {
+      const hit = estaNaFaixaY(ev);
+      if (!hit) return;
+      ev.preventDefault();
+      resetarEscalaY();
+    };
+
+    const onWheel = ev => {
+      const hit = estaNaFaixaY(ev);
+      if (!hit) return;
+      ev.preventDefault();
+      const { geo } = hit;
+      const span0 = Math.max(1e-6, geo.max - geo.min);
+      const meio = (geo.min + geo.max) / 2;
+      const fator = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
+      const meiaLarg = Math.max(1e-4, (span0 / 2) * fator);
+      aplicarEscalaY(meio - meiaLarg, meio + meiaLarg, false);
+    };
+
+    dom.addEventListener('pointerdown', onPointerDown);
+    dom.addEventListener('pointermove', onPointerMove);
+    dom.addEventListener('pointerup', encerrarArraste);
+    dom.addEventListener('pointercancel', encerrarArraste);
+    dom.addEventListener('dblclick', onDblClick);
+    dom.addEventListener('wheel', onWheel, { passive: false });
+
+    instance.__cleanupYScale = () => {
+      clearTimeout(estado.badgeTimer);
+      dom.classList.remove('chart-yscale-hover', 'chart-yscale-dragging');
+      dom.removeEventListener('pointerdown', onPointerDown);
+      dom.removeEventListener('pointermove', onPointerMove);
+      dom.removeEventListener('pointerup', encerrarArraste);
+      dom.removeEventListener('pointercancel', encerrarArraste);
+      dom.removeEventListener('dblclick', onDblClick);
+      dom.removeEventListener('wheel', onWheel);
+    };
+  }
+
   function getChart(id) {
     const dom = el(id);
     if (!dom || typeof echarts === 'undefined') return null;
     if (charts[id] && charts[id].getDom() !== dom) {
+      if (charts[id].__cleanupYScale) charts[id].__cleanupYScale();
       charts[id].dispose();
       delete charts[id];
     }
     if (!charts[id]) {
       const instance = echarts.init(dom, null, { renderer: 'canvas' });
       const origSetOption = instance.setOption.bind(instance);
+      anexarAjusteEixoY(instance, dom, origSetOption);
       instance.setOption = (option, ...rest) => {
         if (option && typeof option === 'object') {
           const tip = option.tooltip && typeof option.tooltip === 'object' ? option.tooltip : {};
           const mob = isMobileViewport();
+          const yCfg = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis;
+          const temEixoYNumerico = Boolean(yCfg && (!yCfg.type || yCfg.type === 'value'));
+          if (instance.__yScale) {
+            instance.__yScale.habilitado = temEixoYNumerico;
+            instance.__yScale.baseYAxis = temEixoYNumerico
+              ? { min: yCfg.min, max: yCfg.max, scale: yCfg.scale }
+              : null;
+          }
+
+          let toolbox = option.toolbox;
+          if (toolbox && typeof toolbox === 'object') {
+            const feat = { ...(toolbox.feature || {}) };
+            if (feat.saveAsImage) {
+              feat.saveAsImage = {
+                backgroundColor: '#ffffff',
+                pixelRatio: 2,
+                ...feat.saveAsImage,
+              };
+            }
+            if (temEixoYNumerico && !feat.myResetY) {
+              feat.myResetY = {
+                show: true,
+                title: 'Restaurar escala Y',
+                icon: RESET_Y_ICON_PATH,
+                onclick: () => instance.__yScale?.resetar?.(),
+              };
+            }
+            toolbox = { ...toolbox, feature: feat };
+          }
+
           const next = {
             ...option,
+            toolbox,
             tooltip: {
               appendToBody: !mob,
               confine: mob,
@@ -152,6 +402,7 @@
   }
   function clearChart(id, msg) {
     if (charts[id]) {
+      if (charts[id].__cleanupYScale) charts[id].__cleanupYScale();
       charts[id].dispose();
       delete charts[id];
     }
@@ -478,7 +729,7 @@
             },
           },
         ];
-        yAxis.scale = true;
+        Object.assign(yAxis, { scale: true }, limitesEixoYComRef(refPct, 0.5, 2, 100));
       } else if (metricaAtual === 'fid') {
         series = [
           {
@@ -504,7 +755,7 @@
             itemStyle: { color: CORES.navy },
           },
         ];
-        yAxis = { type: 'value', scale: true };
+        yAxis = { type: 'value', scale: true, ...limitesEixoYComRef(1, 0.005, 4) };
       } else {
         series = [
           { name: 'TEIFa (%)', type: 'line', smooth: 0.25, data: hist.map(r => Number((r.teifa * 100).toFixed(4))), itemStyle: { color: CORES.red } },
@@ -618,7 +869,7 @@
         toolbox: { feature: { saveAsImage: { title: 'Salvar PNG' } }, right: 12 },
         grid: { left: 56, right: 24, top: 36, bottom: 54 },
         xAxis: { type: 'category', data: names, axisLabel: { rotate: 22, color: '#3c566b', fontSize: 11 } },
-        yAxis: { type: 'value', scale: true },
+        yAxis: { type: 'value', scale: true, ...limitesEixoYComRef(1, 0.005, 4) },
         series: [
           {
             name: 'FID Bruto',
@@ -686,15 +937,6 @@
     const ant = el('mes-edicao').value;
     el('mes-edicao').innerHTML = mesesOpts;
     if ([...el('mes-edicao').options].some(o => o.value === ant)) el('mes-edicao').value = ant;
-
-    const antStress = el('stress-mes').value;
-    el('stress-mes').innerHTML = mesesOpts;
-    if ([...el('stress-mes').options].some(o => o.value === antStress)) el('stress-mes').value = antStress;
-
-    const ugs = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base);
-    el('stress-ug').innerHTML =
-      '<option value="ALL">Todas as UGs</option>' +
-      ugs.map(g => `<option value="${g.ug}">UG ${g.ug} (${numero(g.potencia_ug_mw, 1)} MW)</option>`).join('');
 
     el('estado-salvar').textContent =
       location.protocol === 'file:'
@@ -859,6 +1101,7 @@
 
       if (metricaSim === 'id') {
         yAxis.axisLabel = { formatter: '{value}%' };
+        Object.assign(yAxis, limitesEixoYComRef(refPct, 0.5, 2, 100));
         series = [
           {
             name: 'Sem novas indisponibilidades',
@@ -896,6 +1139,7 @@
           },
         ];
       } else if (metricaSim === 'fid') {
+        Object.assign(yAxis, limitesEixoYComRef(1, 0.005, 4));
         series = [
           {
             name: 'FID Bruto · Sem paradas',
@@ -2324,35 +2568,618 @@
     renderEditor();
     renderSimulacao();
   };
-  el('btn-aplicar-stress').onclick = () => {
-    const u = usinaAtual();
-    if (!u) return;
-    const e = estadoSim(u.cod_ceg);
-    const m = el('stress-mes').value;
-    const ugAlvo = el('stress-ug').value;
-    const tipo = el('stress-tipo').value;
-    const dias = Math.max(0, Number(el('stress-dias').value) || 0);
-    const hp = M.horasMes(m);
-    const horasAdd = Math.min(hp, dias * 24);
-    const ugs = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base);
-    const selecionadas = ugAlvo === 'ALL' ? ugs.map(x => x.ug) : [Number(ugAlvo)];
-    for (const ugNum of selecionadas) {
-      const k = `${m}|${ugNum}`;
-      if (!e.edicoes[k]) e.edicoes[k] = {};
-      const atualTipo = e.edicoes[k][tipo] || 0;
-      const outras = M.CAMPOS.filter(c => c !== tipo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
-      const excesso = atualTipo + horasAdd + outras - hp;
-      if (excesso > 0 && tipo !== 'HRD' && (e.edicoes[k].HRD || 0) > 0) {
-        e.edicoes[k].HRD = Number(Math.max(0, e.edicoes[k].HRD - excesso).toFixed(2));
-      }
-      const outrasPos = M.CAMPOS.filter(c => c !== tipo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
-      e.edicoes[k][tipo] = Number(Math.min(Math.max(0, hp - outrasPos), atualTipo + horasAdd).toFixed(2));
+  // ===== MODAL DE MANUTENÇÃO / ESTRESSE SIMULADO (SOMENTE SIMULAÇÃO FID) =====
+  const CHECK_SVG =
+    '<svg class="cselect-check-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  let simModalUgsDisponiveis = [];
+  let simModalUgsSelecionadas = new Set();
+  const simSelectOpcoes = {};
+
+  function isoDataUtc(dt) {
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+  }
+  function somarDiasIso(iso, delta) {
+    const dt = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+    if (Number.isNaN(dt.getTime())) return '';
+    dt.setUTCDate(dt.getUTCDate() + delta);
+    return isoDataUtc(dt);
+  }
+  function diffDiasInclusivo(iniIso, fimIso) {
+    const d1 = new Date(`${String(iniIso).slice(0, 10)}T00:00:00Z`);
+    const d2 = new Date(`${String(fimIso).slice(0, 10)}T00:00:00Z`);
+    if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return null;
+    return Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1;
+  }
+  function infoClassificadorModal(codigo) {
+    const sig = String(codigo || '').trim().toUpperCase();
+    return (D.classificadores_ons || []).find(c => c.codigo === sig) || null;
+  }
+  function destinoExpurgoModal(codigo) {
+    const info = infoClassificadorModal(codigo);
+    return info && info.destino_expurgo === 'HDCE' ? 'HDCE' : 'HRD';
+  }
+
+  function fecharMenusCselect(excetoWrap = null) {
+    document.querySelectorAll('#modal-sim-manut .cselect.open').forEach(wrap => {
+      if (wrap === excetoWrap) return;
+      wrap.classList.remove('open');
+      const btn = wrap.querySelector('.cselect-trigger');
+      const menu = wrap.querySelector('.cselect-menu');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      if (menu) menu.hidden = true;
+    });
+  }
+  function posicionarMenuCselect(wrap) {
+    const btn = wrap.querySelector('.cselect-trigger');
+    const menu = wrap.querySelector('.cselect-menu');
+    if (!btn || !menu) return;
+    const rect = btn.getBoundingClientRect();
+    const minW = wrap.id === 'cs-sim-classificador' ? Math.max(rect.width, 320) : rect.width;
+    const width = Math.min(minW, window.innerWidth - 20);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 10) {
+      left = Math.max(10, window.innerWidth - width - 10);
     }
-    el('mes-edicao').value = m;
-    guardar();
-    renderEditor();
-    renderSimulacao();
-  };
+    const espacoAbaixo = window.innerHeight - rect.bottom - 12;
+    const espacoAcima = rect.top - 12;
+    const abrirAcima = espacoAbaixo < 200 && espacoAcima > espacoAbaixo;
+    const maxH = Math.max(120, Math.min(260, abrirAcima ? espacoAcima : espacoAbaixo));
+    menu.style.width = `${width}px`;
+    menu.style.left = `${left}px`;
+    menu.style.maxHeight = `${maxH}px`;
+    if (abrirAcima) {
+      menu.style.top = 'auto';
+      menu.style.bottom = `${window.innerHeight - rect.top + 5}px`;
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.top = `${rect.bottom + 5}px`;
+    }
+  }
+  function alternarMenuCselect(wrap) {
+    if (!wrap) return;
+    const estavaAberto = wrap.classList.contains('open');
+    fecharMenusCselect();
+    if (estavaAberto) return;
+    const btn = wrap.querySelector('.cselect-trigger');
+    const menu = wrap.querySelector('.cselect-menu');
+    if (!btn || !menu) return;
+    wrap.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+    menu.hidden = false;
+    posicionarMenuCselect(wrap);
+  }
+
+  function configurarCselectSimples(inputId, wrapId, opcoes, aoMudar) {
+    simSelectOpcoes[inputId] = opcoes;
+    const wrap = el(wrapId);
+    const input = el(inputId);
+    if (!wrap || !input) return;
+    const menu = wrap.querySelector('.cselect-menu');
+    menu.innerHTML = opcoes
+      .map(
+        o =>
+          `<button type="button" class="cselect-option" role="option" data-val="${esc(o.value)}">
+            <span class="cselect-opt-main">${o.html}</span>
+            ${o.sub ? `<span class="cselect-opt-sub">${esc(o.sub)}</span>` : ''}
+            ${CHECK_SVG}
+          </button>`
+      )
+      .join('');
+    menu.onclick = ev => {
+      const btnOpt = ev.target.closest('.cselect-option');
+      if (!btnOpt) return;
+      definirValorCselect(inputId, wrapId, btnOpt.dataset.val);
+      fecharMenusCselect();
+      if (aoMudar) aoMudar(btnOpt.dataset.val);
+    };
+  }
+  function definirValorCselect(inputId, wrapId, valor) {
+    const input = el(inputId);
+    const wrap = el(wrapId);
+    if (!input || !wrap) return;
+    input.value = valor;
+    const opcoes = simSelectOpcoes[inputId] || [];
+    const atual = opcoes.find(o => o.value === valor) || opcoes[0];
+    const valEl = wrap.querySelector('.cselect-value');
+    if (valEl && atual) {
+      valEl.innerHTML = atual.triggerHtml || atual.html;
+    }
+    wrap.querySelectorAll('.cselect-option').forEach(opt => {
+      const sel = opt.dataset.val === valor;
+      opt.classList.toggle('selected', sel);
+      opt.setAttribute('aria-selected', sel ? 'true' : 'false');
+    });
+  }
+
+  function renderMultiselectUg() {
+    const wrap = el('cs-sim-ug');
+    const menu = el('sim-manut-ug-menu');
+    const valEl = wrap?.querySelector('.cselect-value');
+    if (!wrap || !menu || !valEl) return;
+
+    const total = simModalUgsDisponiveis.length;
+    const qtd = simModalUgsSelecionadas.size;
+    const todasMarcadas = total > 0 && qtd === total;
+
+    if (qtd === 0) {
+      valEl.innerHTML = '<span class="cselect-value-muted">Selecione ao menos 1 UG</span>';
+    } else if (todasMarcadas) {
+      valEl.innerHTML = `<span class="badge cselect-pill-sm">Todas</span><span class="cselect-value-text">${total} UGs selecionadas</span>`;
+    } else if (qtd <= 3) {
+      const nomes = [...simModalUgsSelecionadas]
+        .sort((a, b) => a - b)
+        .map(n => `UG ${String(n).padStart(2, '0')}`)
+        .join(', ');
+      valEl.innerHTML = `<span class="badge info cselect-pill-sm">${qtd}</span><span class="cselect-value-text">${esc(nomes)}</span>`;
+    } else {
+      valEl.innerHTML = `<span class="badge info cselect-pill-sm">${qtd} / ${total}</span><span class="cselect-value-text">${qtd} UGs selecionadas</span>`;
+    }
+
+    menu.innerHTML =
+      `<div class="cselect-multi-head">
+        <label class="cselect-multi-all">
+          <input type="checkbox" data-ug-all="1" ${todasMarcadas ? 'checked' : ''}>
+          <span>Todas as UGs</span>
+        </label>
+        <span class="cselect-multi-count">${qtd}/${total}</span>
+      </div>` +
+      simModalUgsDisponiveis
+        .map(g => {
+          const checked = simModalUgsSelecionadas.has(g.ug);
+          return `<label class="cselect-multi-item ${checked ? 'selected' : ''}">
+            <span class="cselect-multi-left">
+              <input type="checkbox" data-ug-num="${g.ug}" ${checked ? 'checked' : ''}>
+              <span>UG ${String(g.ug).padStart(2, '0')}</span>
+            </span>
+            <span class="cselect-mw">${numero(g.potencia_ug_mw, 1)} MW</span>
+          </label>`;
+        })
+        .join('');
+    const chkAll = menu.querySelector('input[data-ug-all]');
+    if (chkAll) chkAll.indeterminate = qtd > 0 && qtd < total;
+  }
+
+  function atualizarRotuloExpurgoModal() {
+    const chk = el('sim-manut-expurgada');
+    const inp = el('sim-manut-expurgo-h');
+    const lbl = el('sim-manut-expurgada-lbl');
+    if (!chk || !inp || !lbl) return;
+    inp.disabled = !chk.checked;
+    if (chk.checked) {
+      const dest = destinoExpurgoModal(el('sim-manut-classificador').value);
+      lbl.textContent = `Sim (Expurgo → ${dest})`;
+    } else {
+      lbl.textContent = 'Não (impacta taxas)';
+    }
+  }
+  function lerEventoModalStress() {
+    const cls = el('sim-manut-classificador').value;
+    return {
+      ugs: [...simModalUgsSelecionadas].sort((a, b) => a - b),
+      estagio: el('sim-manut-estagio').value,
+      tipo_manut: el('sim-manut-tipo').value,
+      classificador: cls,
+      campo_impacto: el('sim-manut-param').value,
+      data_inicio: el('sim-manut-inicio').value,
+      data_fim: el('sim-manut-fim').value,
+      retorno_diario: el('sim-manut-retorno').value === 'sim',
+      horas_brutas: el('sim-manut-bruto').value === '' ? null : Number(el('sim-manut-bruto').value),
+      expurgada: el('sim-manut-expurgada').checked,
+      expurgo_horas: el('sim-manut-expurgada').checked ? Number(el('sim-manut-expurgo-h').value) || 0 : 0,
+      destino_expurgo: destinoExpurgoModal(cls),
+      descricao: (el('sim-manut-desc').value || '').trim(),
+    };
+  }
+  function atualizarPreviewModalStress() {
+    const u = usinaAtual();
+    const box = el('sim-manut-preview');
+    const err = el('sim-manut-erro');
+    const btn = el('btn-aplicar-modal-stress');
+    if (!u || !box || !err || !btn) return;
+    atualizarRotuloExpurgoModal();
+    const e = estadoSim(u.cod_ceg);
+    const mesMin = M.moverMes(D.mes_base, 1);
+    const mesMax = M.moverMes(D.mes_base, e.horizonte);
+    const ev = lerEventoModalStress();
+    if (!ev.ugs.length) {
+      box.innerHTML = '';
+      err.textContent = 'Selecione ao menos uma UG para aplicar na simulação.';
+      err.hidden = false;
+      btn.disabled = true;
+      return;
+    }
+    try {
+      const r = M.ratearManutencaoSimulada(ev, {
+        aplicarExpurgos: e.aplicarExpurgos !== false,
+        mesMin,
+        mesMax,
+      });
+      const destCls =
+        r.destino_ons === 'HRD' ? '' : r.destino_ons === 'HDCE' ? 'info' : r.destino_ons === 'HDP' ? 'warn' : 'neutral';
+      const resumoUgs =
+        ev.ugs.length === simModalUgsDisponiveis.length
+          ? `Todas as UGs (${ev.ugs.length})`
+          : ev.ugs.length <= 4
+          ? ev.ugs.map(n => `UG ${String(n).padStart(2, '0')}`).join(', ')
+          : `${ev.ugs.length} UGs selecionadas`;
+      const resumoMeses = r.meses
+        .map(m => {
+          const partes = M.CAMPOS.filter(c => (m[c] || 0) > 0).map(c => `${numero(m[c], 1)} h ${c}`);
+          return `<strong>${dataMes(m.mes)}</strong> (${partes.join(' + ')})`;
+        })
+        .join(' · ');
+      const avisoFora =
+        r.dias_fora_horizonte > 0
+          ? `<div class="modal-preview-meta modal-preview-warn">Atenção: ${r.dias_fora_horizonte} dia(s) estão fora do horizonte atual (${dataMes(mesMin)} a ${dataMes(mesMax)}) e não serão aplicados.</div>`
+          : '';
+      const avisoExpOff =
+        ev.expurgada && ev.expurgo_horas > 0 && e.aplicarExpurgos === false
+          ? '<div class="modal-preview-meta modal-preview-warn">A opção "Aplicar expurgos ONS" está desmarcada no simulador; todas as horas entrarão no parâmetro de impacto.</div>'
+          : '';
+      box.innerHTML = `
+        <div class="modal-preview-grid">
+          <div class="modal-preview-item"><span>Bruto (h/UG)</span><strong>${numero(r.horas_brutas, 1)} h</strong></div>
+          <div class="modal-preview-item"><span>Expurgo (h/UG)</span><strong class="${r.expurgo_horas > 0 ? 'num-pos' : ''}">${numero(r.expurgo_horas, 1)} h</strong></div>
+          <div class="modal-preview-item"><span>${esc(r.campo_impacto)} Líq. (h/UG)</span><strong>${numero(r.indisponibilidade_horas, 1)} h</strong></div>
+          <div class="modal-preview-item"><span>Destino ONS</span><div><span class="badge ${destCls}">${esc(r.destino_ons)}</span></div></div>
+        </div>
+        <div class="modal-preview-meta">
+          <strong>Escopo:</strong> ${esc(resumoUgs)} &nbsp;·&nbsp;
+          ${r.meses.length ? `Rateio (${r.duracao_dias} dia${r.duracao_dias === 1 ? '' : 's'}): ${resumoMeses}` : 'Nenhum dia dentro do horizonte simulado.'}
+        </div>
+        ${avisoFora}${avisoExpOff}`;
+      if (!r.meses.length) {
+        err.textContent = `O período informado está totalmente fora do horizonte atual (${dataMes(mesMin)} a ${dataMes(mesMax)}). Ajuste as datas ou aumente o horizonte.`;
+        err.hidden = false;
+        btn.disabled = true;
+      } else {
+        err.hidden = true;
+        btn.disabled = false;
+      }
+    } catch (erro) {
+      box.innerHTML = '';
+      err.textContent = erro.message;
+      err.hidden = false;
+      btn.disabled = true;
+    }
+  }
+  function aoMudarClassificadorModal(cls) {
+    const info = infoClassificadorModal(cls);
+    const bruto = Number(el('sim-manut-bruto').value) || 0;
+    if (info && info.codigo === 'GRH' && el('sim-manut-param').value === 'HDP') {
+      definirValorCselect('sim-manut-param', 'cs-sim-param', 'HEDP');
+    }
+    if (info && (info.expurgo_integral || info.grupo_ons === '7.1.3.2' || info.grupo_ons === '7.1.3.3')) {
+      el('sim-manut-expurgada').checked = true;
+      el('sim-manut-expurgo-h').disabled = false;
+      el('sim-manut-expurgo-h').value = String(bruto);
+    } else {
+      el('sim-manut-expurgada').checked = false;
+      el('sim-manut-expurgo-h').disabled = true;
+      el('sim-manut-expurgo-h').value = '0';
+    }
+    atualizarPreviewModalStress();
+  }
+  function abrirModalStress() {
+    const u = usinaAtual();
+    const modal = el('modal-sim-manut');
+    if (!u || !modal) return;
+    const e = estadoSim(u.cod_ceg);
+    simModalUgsDisponiveis = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base);
+    simModalUgsSelecionadas = new Set(simModalUgsDisponiveis.map(g => g.ug));
+
+    el('sim-manut-usina').value = `${u.usina} · ${u.polo}`;
+    renderMultiselectUg();
+
+    configurarCselectSimples(
+      'sim-manut-estagio',
+      'cs-sim-estagio',
+      [
+        { value: 'Planejado', html: '<span class="badge neutral cselect-pill-sm">Planejado</span>' },
+        { value: 'Programado', html: '<span class="badge info cselect-pill-sm">Programado</span>' },
+        { value: 'Reprogramado', html: '<span class="badge warn cselect-pill-sm">Reprogramado</span>' },
+        { value: 'Executado', html: '<span class="badge cselect-pill-sm">Executado</span>' },
+      ],
+      () => atualizarPreviewModalStress()
+    );
+    definirValorCselect('sim-manut-estagio', 'cs-sim-estagio', 'Planejado');
+
+    const tiposPadrao = ['MPP0', 'MPP1', 'MPP2', 'MOD', 'MPAIE', 'PRED', 'C. PROG', 'CSEG', 'BS', 'CORR', 'OUTROS'];
+    const tiposDados = (D.manutencoes || []).map(m => m.tipo_manut).filter(Boolean);
+    const tiposUnicos = [...new Set([...tiposPadrao, ...tiposDados])];
+    configurarCselectSimples(
+      'sim-manut-tipo',
+      'cs-sim-tipo',
+      tiposUnicos.map(t => {
+        const cor = TIPO_COR[t] || '#475569';
+        const pill = `<span class="badge info cselect-pill-sm" style="background:${cor}20;color:${cor}">${esc(t)}</span>`;
+        return { value: t, html: pill, triggerHtml: pill };
+      }),
+      () => atualizarPreviewModalStress()
+    );
+    definirValorCselect('sim-manut-tipo', 'cs-sim-tipo', tiposUnicos.includes('MPP1') ? 'MPP1' : tiposUnicos[0]);
+
+    const classifsUhe = (D.classificadores_ons || []).filter(c => c.aplica_uhe !== false);
+    configurarCselectSimples(
+      'sim-manut-classificador',
+      'cs-sim-classificador',
+      [
+        ...classifsUhe.map(c => ({
+          value: c.codigo,
+          html: `${badgeClassificador(c.codigo, c.grupo_ons)}<span class="cselect-opt-text">${esc(c.nome)}</span>`,
+          triggerHtml: `${badgeClassificador(c.codigo, c.grupo_ons)}<span class="cselect-value-text">${esc(c.nome)}</span>`,
+        })),
+        {
+          value: '',
+          html: '<span class="badge neutral cselect-pill-sm">—</span><span class="cselect-opt-text">Sem classificador (HDP)</span>',
+          triggerHtml: '<span class="badge neutral cselect-pill-sm">—</span><span class="cselect-value-text">Sem classificador</span>',
+        },
+      ],
+      val => aoMudarClassificadorModal(val)
+    );
+    definirValorCselect('sim-manut-classificador', 'cs-sim-classificador', 'GUM');
+
+    configurarCselectSimples(
+      'sim-manut-param',
+      'cs-sim-param',
+      [
+        { value: 'HDP', html: '<span class="badge warn cselect-pill-sm">HDP</span><span class="cselect-opt-text">Programada</span>' },
+        { value: 'HDF', html: '<span class="badge danger cselect-pill-sm">HDF</span><span class="cselect-opt-text">Forçada</span>' },
+        { value: 'HEDP', html: '<span class="badge warn cselect-pill-sm">HEDP</span><span class="cselect-opt-text">Restr. Programada</span>' },
+        { value: 'HEDF', html: '<span class="badge danger cselect-pill-sm">HEDF</span><span class="cselect-opt-text">Restr. Forçada</span>' },
+      ],
+      () => atualizarPreviewModalStress()
+    );
+    definirValorCselect('sim-manut-param', 'cs-sim-param', 'HDP');
+
+    configurarCselectSimples(
+      'sim-manut-retorno',
+      'cs-sim-retorno',
+      [
+        { value: 'nao', html: '<span class="cselect-opt-text">Não</span>', sub: '24h/dia', triggerHtml: '<span class="cselect-value-text">Não (24h/dia)</span>' },
+        { value: 'sim', html: '<span class="cselect-opt-text">Sim</span>', sub: '12h/dia', triggerHtml: '<span class="cselect-value-text">Sim (12h/dia)</span>' },
+      ],
+      () => {
+        const dias = Math.max(1, parseInt(el('sim-manut-dias').value, 10) || 1);
+        sincronizarHorasPorDias(dias);
+        atualizarPreviewModalStress();
+      }
+    );
+    definirValorCselect('sim-manut-retorno', 'cs-sim-retorno', 'nao');
+
+    const mSel = el('mes-edicao').value || M.moverMes(D.mes_base, 1);
+    const [anoM, numM] = mSel.split('-').map(Number);
+    const diasMes = new Date(Date.UTC(anoM, numM, 0)).getUTCDate();
+    const diasIni = Math.min(10, diasMes);
+    const iniIso = `${mSel}-01`;
+    const fimIso = `${mSel}-${String(diasIni).padStart(2, '0')}`;
+    const mesMin = M.moverMes(D.mes_base, 1);
+    const mesMax = M.moverMes(D.mes_base, e.horizonte);
+    const [anoMax, numMax] = mesMax.split('-').map(Number);
+    const ultDiaMax = new Date(Date.UTC(anoMax, numMax, 0)).getUTCDate();
+
+    el('sim-manut-inicio').min = `${mesMin}-01`;
+    el('sim-manut-inicio').max = `${mesMax}-${String(ultDiaMax).padStart(2, '0')}`;
+    el('sim-manut-fim').min = `${mesMin}-01`;
+    el('sim-manut-fim').max = `${mesMax}-${String(ultDiaMax).padStart(2, '0')}`;
+    el('sim-manut-inicio').value = iniIso;
+    el('sim-manut-fim').value = fimIso;
+    el('sim-manut-dias').value = String(diasIni);
+    el('sim-manut-bruto').value = String(diasIni * 24);
+    el('sim-manut-expurgada').checked = false;
+    el('sim-manut-expurgo-h').value = '0';
+    el('sim-manut-expurgo-h').disabled = true;
+    el('sim-manut-desc').value = '';
+
+    fecharMenusCselect();
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    atualizarPreviewModalStress();
+    el('sim-manut-ug-btn')?.focus();
+  }
+  function fecharModalStress() {
+    fecharMenusCselect();
+    const modal = el('modal-sim-manut');
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  if (el('btn-abrir-modal-stress')) {
+    el('btn-abrir-modal-stress').onclick = abrirModalStress;
+  }
+  if (el('btn-fechar-modal-stress')) {
+    el('btn-fechar-modal-stress').onclick = fecharModalStress;
+  }
+  if (el('btn-cancelar-modal-stress')) {
+    el('btn-cancelar-modal-stress').onclick = fecharModalStress;
+  }
+  if (el('btn-ir-paradas-modal')) {
+    el('btn-ir-paradas-modal').onclick = () => {
+      fecharModalStress();
+      irPara('manutencoes');
+    };
+  }
+  if (el('modal-sim-manut')) {
+    document.querySelectorAll('#modal-sim-manut .cselect-trigger').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        alternarMenuCselect(btn.closest('.cselect'));
+      });
+    });
+    if (el('sim-manut-ug-menu')) {
+      el('sim-manut-ug-menu').addEventListener('change', ev => {
+        const alvo = ev.target;
+        if (!alvo.matches('input[type="checkbox"]')) return;
+        if (alvo.dataset.ugAll) {
+          if (alvo.checked) {
+            simModalUgsSelecionadas = new Set(simModalUgsDisponiveis.map(g => g.ug));
+          } else {
+            simModalUgsSelecionadas.clear();
+          }
+        } else if (alvo.dataset.ugNum) {
+          const num = Number(alvo.dataset.ugNum);
+          if (alvo.checked) simModalUgsSelecionadas.add(num);
+          else simModalUgsSelecionadas.delete(num);
+        }
+        renderMultiselectUg();
+        atualizarPreviewModalStress();
+      });
+    }
+    el('modal-sim-manut').addEventListener('click', ev => {
+      if (ev.target === el('modal-sim-manut')) {
+        fecharModalStress();
+        return;
+      }
+      if (!ev.target.closest('.cselect')) {
+        fecharMenusCselect();
+      }
+    });
+    const modalBodyEl = el('modal-sim-manut').querySelector('.modal-body');
+    if (modalBodyEl) {
+      modalBodyEl.addEventListener('scroll', () => {
+        const aberto = document.querySelector('#modal-sim-manut .cselect.open');
+        if (aberto) posicionarMenuCselect(aberto);
+      });
+    }
+    window.addEventListener('resize', () => {
+      const aberto = document.querySelector('#modal-sim-manut .cselect.open');
+      if (aberto) posicionarMenuCselect(aberto);
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape') return;
+      const aberto = document.querySelector('#modal-sim-manut .cselect.open');
+      if (aberto) {
+        fecharMenusCselect();
+      } else if (!el('modal-sim-manut').hidden) {
+        fecharModalStress();
+      }
+    });
+  }
+
+  function sincronizarHorasPorDias(dias) {
+    if (!dias || dias < 1) return;
+    const taxa = el('sim-manut-retorno').value === 'sim' ? 12 : 24;
+    const brutoAnt = Number(el('sim-manut-bruto').value) || 0;
+    const novoBruto = Number((dias * taxa).toFixed(1));
+    el('sim-manut-bruto').value = String(novoBruto);
+    if (el('sim-manut-expurgada').checked) {
+      const expAnt = Number(el('sim-manut-expurgo-h').value) || 0;
+      if (Math.abs(expAnt - brutoAnt) < 0.15 || expAnt > novoBruto) {
+        el('sim-manut-expurgo-h').value = String(novoBruto);
+      }
+    }
+  }
+  if (el('sim-manut-inicio')) {
+    el('sim-manut-inicio').onchange = () => {
+      const ini = el('sim-manut-inicio').value;
+      const fim = el('sim-manut-fim').value;
+      if (ini && (!fim || fim < ini)) {
+        const d = Math.max(1, parseInt(el('sim-manut-dias').value, 10) || 1);
+        el('sim-manut-fim').value = somarDiasIso(ini, d - 1);
+      }
+      const dias = diffDiasInclusivo(el('sim-manut-inicio').value, el('sim-manut-fim').value);
+      if (dias && dias >= 1) {
+        el('sim-manut-dias').value = String(dias);
+        sincronizarHorasPorDias(dias);
+      }
+      atualizarPreviewModalStress();
+    };
+  }
+  if (el('sim-manut-fim')) {
+    el('sim-manut-fim').onchange = () => {
+      const dias = diffDiasInclusivo(el('sim-manut-inicio').value, el('sim-manut-fim').value);
+      if (dias && dias >= 1) {
+        el('sim-manut-dias').value = String(dias);
+        sincronizarHorasPorDias(dias);
+      }
+      atualizarPreviewModalStress();
+    };
+  }
+  if (el('sim-manut-dias')) {
+    el('sim-manut-dias').oninput = () => {
+      const dias = parseInt(el('sim-manut-dias').value, 10);
+      if (Number.isFinite(dias) && dias >= 1 && el('sim-manut-inicio').value) {
+        el('sim-manut-fim').value = somarDiasIso(el('sim-manut-inicio').value, dias - 1);
+        sincronizarHorasPorDias(dias);
+      }
+      atualizarPreviewModalStress();
+    };
+  }
+  if (el('sim-manut-expurgada')) {
+    el('sim-manut-expurgada').onchange = () => {
+      const chk = el('sim-manut-expurgada').checked;
+      el('sim-manut-expurgo-h').disabled = !chk;
+      if (chk) {
+        const atual = Number(el('sim-manut-expurgo-h').value) || 0;
+        if (atual <= 0) el('sim-manut-expurgo-h').value = el('sim-manut-bruto').value || '0';
+      } else {
+        el('sim-manut-expurgo-h').value = '0';
+      }
+      atualizarPreviewModalStress();
+    };
+  }
+  for (const id of ['sim-manut-bruto', 'sim-manut-expurgo-h']) {
+    if (el(id)) el(id).addEventListener('input', atualizarPreviewModalStress);
+  }
+  if (el('form-sim-manut')) {
+    el('form-sim-manut').onsubmit = ev => {
+      ev.preventDefault();
+      const u = usinaAtual();
+      if (!u) return;
+      const e = estadoSim(u.cod_ceg);
+      const mesMin = M.moverMes(D.mes_base, 1);
+      const mesMax = M.moverMes(D.mes_base, e.horizonte);
+      const dadosModal = lerEventoModalStress();
+      if (!dadosModal.ugs.length) {
+        el('sim-manut-erro').textContent = 'Selecione ao menos uma UG para aplicar na simulação.';
+        el('sim-manut-erro').hidden = false;
+        return;
+      }
+      let rateio;
+      try {
+        rateio = M.ratearManutencaoSimulada(dadosModal, {
+          aplicarExpurgos: e.aplicarExpurgos !== false,
+          mesMin,
+          mesMax,
+        });
+      } catch (erro) {
+        el('sim-manut-erro').textContent = erro.message;
+        el('sim-manut-erro').hidden = false;
+        return;
+      }
+      if (!rateio.meses.length) return;
+
+      const selecionadas = dadosModal.ugs;
+      const ordemCampos = ['HDF', 'HEDF', 'HDP', 'HEDP', 'HDCE', 'HRD'];
+
+      for (const item of rateio.meses) {
+        const hp = M.horasMes(item.mes);
+        for (const ugNum of selecionadas) {
+          const k = `${item.mes}|${ugNum}`;
+          if (!e.edicoes[k]) e.edicoes[k] = {};
+          for (const campo of ordemCampos) {
+            const add = item[campo] || 0;
+            if (add <= 0) continue;
+            const atualTipo = e.edicoes[k][campo] || 0;
+            const outras = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
+            const excesso = atualTipo + add + outras - hp;
+            if (excesso > 0 && campo !== 'HRD' && (e.edicoes[k].HRD || 0) > 0) {
+              e.edicoes[k].HRD = Number(Math.max(0, e.edicoes[k].HRD - excesso).toFixed(2));
+            }
+            const outrasPos = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
+            e.edicoes[k][campo] = Number(Math.min(Math.max(0, hp - outrasPos), atualTipo + add).toFixed(2));
+          }
+        }
+      }
+
+      el('mes-edicao').value = rateio.meses[0].mes;
+      guardar();
+      renderEditor();
+      renderSimulacao();
+      fecharModalStress();
+    };
+  }
 
   el('tabela-editor').oninput = ev => {
     const alvo = ev.target;

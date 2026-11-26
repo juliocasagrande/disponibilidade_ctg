@@ -298,19 +298,11 @@
                 </div>
                 <div class="stress-section stress-inject">
                   <div class="stress-section-title">Injetar Estresse Pontual</div>
-                  <div class="stress-form">
-                    <label><span>Mês</span><select id="stress-mes"></select></label>
-                    <label><span>UG</span><select id="stress-ug"></select></label>
-                    <label><span>Tipo</span>
-                      <select id="stress-tipo">
-                        <option value="HDF">HDF (Forçada)</option>
-                        <option value="HDP">HDP (Programada)</option>
-                        <option value="HEDF">HEDF (Restr. Forçada)</option>
-                        <option value="HEDP">HEDP (Restr. Prog.)</option>
-                      </select>
-                    </label>
-                    <label><span>Dias</span><input id="stress-dias" type="number" min="1" max="31" value="10"></label>
-                    <button id="btn-aplicar-stress" class="btn accent" type="button">+ Aplicar</button>
+                  <div class="stress-cta-row">
+                    <button id="btn-abrir-modal-stress" class="btn accent stress-modal-trigger" type="button">
+                      + Configurar Manutenção / Estresse Simulado
+                    </button>
+                    <span class="stress-cta-hint">Somente para simulação de FID · não altera o banco de Paradas Programadas.</span>
                   </div>
                 </div>
               </div>
@@ -837,6 +829,162 @@ ORDER BY fid_bruto ASC;</textarea>
         </div>
       </section>
     </main>
+  </div>
+</div>
+
+<div id="modal-sim-manut" class="modal-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="modal-sim-titulo">
+  <div class="modal-dialog">
+    <div class="modal-head">
+      <div>
+        <span class="modal-eyebrow">Simulador FID · Cenário Temporário</span>
+        <h3 id="modal-sim-titulo">Configurar Manutenção / Estresse Simulado</h3>
+      </div>
+      <button id="btn-fechar-modal-stress" class="modal-close" type="button" aria-label="Fechar janela">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <form id="form-sim-manut" class="modal-body" novalidate>
+      <div class="modal-notice" role="note">
+        <div class="modal-notice-text">
+          <strong>Uso exclusivo para simulação de FID:</strong> esta intervenção é temporária e será aplicada apenas ao cenário ativo do simulador. Ela <strong>não será acrescida</strong> ao banco de Manutenções Programadas.
+          <span>As manutenções programadas oficiais devem ser configuradas na página <button id="btn-ir-paradas-modal" class="link-inline" type="button">Paradas Programadas</button>.</span>
+        </div>
+      </div>
+
+      <div class="modal-grid cols-3">
+        <label class="modal-field">
+          <span>Usina</span>
+          <input id="sim-manut-usina" type="text" readonly>
+        </label>
+        <div class="modal-field">
+          <span>UGs (seleção múltipla)</span>
+          <div id="cs-sim-ug" class="cselect" data-multi="true">
+            <button id="sim-manut-ug-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">Selecione as UGs</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-ug-menu" class="cselect-menu" role="listbox" aria-multiselectable="true" hidden></div>
+          </div>
+        </div>
+        <div class="modal-field">
+          <span>Estágio</span>
+          <div id="cs-sim-estagio" class="cselect">
+            <input id="sim-manut-estagio" type="hidden" value="Planejado">
+            <button id="sim-manut-estagio-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">Planejado</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-estagio-menu" class="cselect-menu" role="listbox" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-grid cols-3">
+        <div class="modal-field">
+          <span>Tipo de Manutenção</span>
+          <div id="cs-sim-tipo" class="cselect">
+            <input id="sim-manut-tipo" type="hidden" value="MPP1">
+            <button id="sim-manut-tipo-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">MPP1</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-tipo-menu" class="cselect-menu" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="modal-field">
+          <span>Classificador ONS</span>
+          <div id="cs-sim-classificador" class="cselect">
+            <input id="sim-manut-classificador" type="hidden" value="GUM">
+            <button id="sim-manut-classificador-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">GUM</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-classificador-menu" class="cselect-menu" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="modal-field">
+          <span>Parâmetro de Impacto</span>
+          <div id="cs-sim-param" class="cselect">
+            <input id="sim-manut-param" type="hidden" value="HDP">
+            <button id="sim-manut-param-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">HDP (Programada)</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-param-menu" class="cselect-menu" role="listbox" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-grid cols-4">
+        <label class="modal-field">
+          <span>Data de Início</span>
+          <input id="sim-manut-inicio" type="date" required>
+        </label>
+        <label class="modal-field">
+          <span>Data de Término</span>
+          <input id="sim-manut-fim" type="date" required>
+        </label>
+        <label class="modal-field">
+          <span>Dias</span>
+          <input id="sim-manut-dias" type="number" min="1" max="3650" step="1" value="10">
+        </label>
+        <div class="modal-field">
+          <span>Retorno Diário</span>
+          <div id="cs-sim-retorno" class="cselect">
+            <input id="sim-manut-retorno" type="hidden" value="nao">
+            <button id="sim-manut-retorno-btn" class="cselect-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="cselect-value">Não (24h/dia)</span>
+              <span class="cselect-arrow" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </button>
+            <div id="sim-manut-retorno-menu" class="cselect-menu" role="listbox" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-grid cols-3">
+        <label class="modal-field">
+          <span>Bruto (h)</span>
+          <input id="sim-manut-bruto" type="number" min="0.1" step="0.1" value="240">
+        </label>
+        <div class="modal-field">
+          <span>Expurgada (ONS)?</span>
+          <label class="modal-check-box">
+            <input id="sim-manut-expurgada" type="checkbox">
+            <span id="sim-manut-expurgada-lbl">Não (impacta taxas)</span>
+          </label>
+        </div>
+        <label class="modal-field">
+          <span>Expurgo (h)</span>
+          <input id="sim-manut-expurgo-h" type="number" min="0" step="0.1" value="0" disabled>
+        </label>
+      </div>
+
+      <div class="modal-field">
+        <label for="sim-manut-desc"><span>Descrição (opcional · apenas referência na simulação)</span></label>
+        <input id="sim-manut-desc" type="text" maxlength="160" placeholder="Ex.: Simulação de inspeção adicional ou parada forçada">
+      </div>
+
+      <div id="sim-manut-preview" class="modal-preview"></div>
+      <div id="sim-manut-erro" class="alert error" role="alert" hidden></div>
+
+      <div class="modal-foot">
+        <button id="btn-cancelar-modal-stress" class="btn secondary" type="button">Cancelar</button>
+        <button id="btn-aplicar-modal-stress" class="btn accent" type="submit">+ Aplicar na Simulação</button>
+      </div>
+    </form>
   </div>
 </div>
 
