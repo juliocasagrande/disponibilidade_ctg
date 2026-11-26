@@ -13,6 +13,7 @@ HTML_PAINEL = Path('resultados/painel/painel.html')
 
 PASTA_MANUTENCOES = PASTA_DADOS / 'manutencoes'
 ARQUIVO_MANUTENCOES_PADRAO = PASTA_MANUTENCOES / 'Manutencoes_e_Modernizacoes_CTG_Brasil_Plurianual.xlsm'
+ARQUIVO_MANUTENCOES_ADICIONAIS = PASTA_MANUTENCOES / 'manutencoes_adicionais.json'
 
 PASTA_SIN = PASTA_DADOS / 'referencias_sin'
 ARQUIVO_SIN_EXCEL = PASTA_SIN / 'Projecao_Disponibilidade_2028_SIN.xlsx'

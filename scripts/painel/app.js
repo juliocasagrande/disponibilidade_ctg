@@ -483,10 +483,14 @@
         horizonte,
         aplicarExpurgos: true,
         iniciadoComPlano: true,
+        baseModo: 'plano',
+        simuladas: [],
       };
       guardar();
     }
     if (salvo[ceg].aplicarExpurgos === undefined) salvo[ceg].aplicarExpurgos = true;
+    if (!Array.isArray(salvo[ceg].simuladas)) salvo[ceg].simuladas = [];
+    if (!salvo[ceg].baseModo) salvo[ceg].baseModo = 'plano';
     return salvo[ceg];
   }
 
@@ -943,6 +947,8 @@
         ? 'Para gravar cenários em Parquet, execute: python scripts/executar.py --painel'
         : '';
 
+    renderTabelaSimuladas();
+    atualizarBadgeCenariosSalvos();
     renderEditor();
     renderSimulacao();
   }
@@ -2491,12 +2497,8 @@
     const e = estadoSim(u.cod_ceg);
     const n = Number(el('horizonte').value);
     if (!Number.isInteger(n) || n < 1 || n > 120) { el('horizonte').value = e.horizonte; return; }
-    const planoNovo = M.construirEdicoesPlano(D, u.cod_ceg, n, { aplicarExpurgos: e.aplicarExpurgos !== false });
-    // Preenche apenas meses novos que ainda nao tinham edicao
-    for (const [k, v] of Object.entries(planoNovo)) {
-      if (!(k in e.edicoes)) e.edicoes[k] = v;
-    }
     e.horizonte = n;
+    reconstruirEdicoesComSimuladas(u, e);
     guardar();
     configurarSimulacao();
     atualizarUiMobile();
@@ -2542,8 +2544,12 @@
     const u = usinaAtual();
     if (!u) return;
     const e = estadoSim(u.cod_ceg);
-    e.edicoes = M.construirEdicoesPlano(D, u.cod_ceg, e.horizonte, { aplicarExpurgos: e.aplicarExpurgos !== false });
+    e.baseModo = 'plano';
+    e.simuladas = [];
+    reconstruirEdicoesComSimuladas(u, e);
     guardar();
+    renderTabelaSimuladas();
+    atualizarBadgeCenariosSalvos();
     renderEditor();
     renderSimulacao();
   };
@@ -2553,8 +2559,9 @@
       if (!u) return;
       const e = estadoSim(u.cod_ceg);
       e.aplicarExpurgos = el('chk-sim-expurgo').checked;
-      e.edicoes = M.construirEdicoesPlano(D, u.cod_ceg, e.horizonte, { aplicarExpurgos: e.aplicarExpurgos });
+      reconstruirEdicoesComSimuladas(u, e);
       guardar();
+      renderTabelaSimuladas();
       renderEditor();
       renderSimulacao();
     };
@@ -2563,8 +2570,12 @@
     const u = usinaAtual();
     if (!u) return;
     const e = estadoSim(u.cod_ceg);
+    e.baseModo = 'zero';
+    e.simuladas = [];
     e.edicoes = {};
     guardar();
+    renderTabelaSimuladas();
+    atualizarBadgeCenariosSalvos();
     renderEditor();
     renderSimulacao();
   };
@@ -2573,7 +2584,129 @@
     '<svg class="cselect-check-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   let simModalUgsDisponiveis = [];
   let simModalUgsSelecionadas = new Set();
+  let simModalEditId = null;
   const simSelectOpcoes = {};
+
+  function reconstruirEdicoesComSimuladas(u, e) {
+    const aplicarExp = e.aplicarExpurgos !== false;
+    const edicoes =
+      e.baseModo === 'zero'
+        ? {}
+        : M.construirEdicoesPlano(D, u.cod_ceg, e.horizonte, { aplicarExpurgos: aplicarExp });
+    const mesMin = M.moverMes(D.mes_base, 1);
+    const mesMax = M.moverMes(D.mes_base, e.horizonte);
+    const ordemCampos = ['HDF', 'HEDF', 'HDP', 'HEDP', 'HDCE', 'HRD'];
+
+    for (const ev of e.simuladas || []) {
+      let rateio;
+      try {
+        rateio = M.ratearManutencaoSimulada(ev, { aplicarExpurgos: aplicarExp, mesMin, mesMax });
+      } catch (_) {
+        continue;
+      }
+      for (const item of rateio.meses) {
+        const hp = M.horasMes(item.mes);
+        for (const ugNum of ev.ugs || []) {
+          const k = `${item.mes}|${ugNum}`;
+          if (!edicoes[k]) edicoes[k] = {};
+          for (const campo of ordemCampos) {
+            const add = item[campo] || 0;
+            if (add <= 0) continue;
+            const atualTipo = edicoes[k][campo] || 0;
+            const outras = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (edicoes[k][c] || 0), 0);
+            const excesso = atualTipo + add + outras - hp;
+            if (excesso > 0 && campo !== 'HRD' && (edicoes[k].HRD || 0) > 0) {
+              edicoes[k].HRD = Number(Math.max(0, edicoes[k].HRD - excesso).toFixed(2));
+            }
+            const outrasPos = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (edicoes[k][c] || 0), 0);
+            edicoes[k][campo] = Number(Math.min(Math.max(0, hp - outrasPos), atualTipo + add).toFixed(2));
+          }
+        }
+      }
+    }
+    e.edicoes = edicoes;
+  }
+
+  function formatarUgsResumo(ugsArr, totalUgs) {
+    const ord = [...(ugsArr || [])].sort((a, b) => a - b);
+    if (!ord.length) return '—';
+    if (totalUgs && ord.length === totalUgs) return `Todas (${ord.length})`;
+    if (ord.length <= 3) return ord.map(n => `UG${String(n).padStart(2, '0')}`).join(', ');
+    return `${ord.length} UGs (${ord.slice(0, 2).map(n => `UG${String(n).padStart(2, '0')}`).join(', ')}…)`;
+  }
+
+  function renderTabelaSimuladas() {
+    const u = usinaAtual();
+    const tbl = el('tabela-sim-manutencoes');
+    if (!u || !tbl) return;
+    const e = estadoSim(u.cod_ceg);
+    const lista = e.simuladas || [];
+    const totalUgs = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base).length;
+    const mesMin = M.moverMes(D.mes_base, 1);
+    const mesMax = M.moverMes(D.mes_base, e.horizonte);
+    const aplicarExp = e.aplicarExpurgos !== false;
+
+    const btnLimpar = el('btn-sim-limpar-eventos');
+    const btnEfetivar = el('btn-sim-efetivar-real');
+    const resumo = el('sim-manut-resumo');
+    if (btnLimpar) btnLimpar.hidden = lista.length === 0;
+    if (btnEfetivar) btnEfetivar.disabled = lista.length === 0;
+
+    if (!lista.length) {
+      if (resumo) {
+        resumo.textContent = 'Nenhuma manutenção incluída neste cenário. Use "+ Configurar Manutenção / Estresse Simulado" ou "+ Incluir Evento" para testar novas paradas.';
+      }
+      tabela(
+        'tabela-sim-manutencoes',
+        ['UGs', 'Tipo', 'Classif.', 'Estágio', 'Início', 'Término', 'Dias', 'Ret. Diário', 'Bruto (h)', 'Expurgo (h)', 'Indisp. Líq. (h)', 'Destino ONS', 'Descrição', 'Ações'],
+        []
+      );
+      return;
+    }
+
+    const totalUgsEventos = lista.reduce((s, ev) => s + (ev.ugs?.length || 0), 0);
+    if (resumo) {
+      resumo.textContent = `${lista.length} ${lista.length === 1 ? 'inclusão simulada' : 'inclusões simuladas'} (${totalUgsEventos} registro${totalUgsEventos === 1 ? '' : 's'} UG) · Somente no cenário ativo até efetivação.`;
+    }
+
+    tabela(
+      'tabela-sim-manutencoes',
+      ['UGs', 'Tipo', 'Classif.', 'Estágio', 'Início', 'Término', 'Dias', 'Ret. Diário', 'Bruto (h)', 'Expurgo (h)', 'Indisp. Líq. (h)', 'Destino ONS', 'Descrição', 'Ações'],
+      lista.map(ev => {
+        let r = null;
+        try {
+          r = M.ratearManutencaoSimulada(ev, { aplicarExpurgos: aplicarExp, mesMin, mesMax });
+        } catch (_) {}
+        const infoCls = infoClassificadorModal(ev.classificador);
+        const corTipo = TIPO_COR[ev.tipo_manut] || '#475569';
+        const dest = r ? r.destino_ons : ev.campo_impacto || 'HDP';
+        const destCls = dest === 'HRD' ? '' : dest === 'HDCE' ? 'info' : dest === 'HDP' ? 'warn' : dest.includes('HDF') ? 'danger' : 'neutral';
+        const bruto = r ? r.horas_brutas : Number(ev.horas_brutas) || 0;
+        const expH = r ? r.expurgo_horas : 0;
+        const liqH = r ? r.indisponibilidade_horas : bruto;
+        const dias = r ? r.duracao_dias : diffDiasInclusivo(ev.data_inicio, ev.data_fim) || '—';
+        return [
+          `<strong>${esc(formatarUgsResumo(ev.ugs, totalUgs))}</strong>`,
+          `<span class="badge info" style="background:${corTipo}20;color:${corTipo}">${esc(ev.tipo_manut || 'OUTROS')}</span>`,
+          badgeClassificador(ev.classificador, infoCls?.grupo_ons),
+          `<span class="badge ${ev.estagio === 'Executado' ? '' : ev.estagio === 'Reprogramado' ? 'warn' : 'neutral'}">${esc(ev.estagio || 'Planejado')}</span>`,
+          dataDia(ev.data_inicio),
+          dataDia(ev.data_fim),
+          dias,
+          ev.retorno_diario ? 'Sim (12h)' : 'Não (24h)',
+          numero(bruto, 1),
+          expH > 0 ? `<span class="num-pos">${numero(expH, 1)}</span>` : '0,0',
+          `<strong>${numero(liqH, 1)}</strong>`,
+          `<span class="badge ${destCls}">${esc(dest)}</span>`,
+          { html: esc(ev.descricao || '—'), cls: 'text-left' },
+          `<div class="sim-row-actions">
+            <button type="button" class="btn secondary btn-xs" data-sim-edit="${esc(ev.id)}">Editar</button>
+            <button type="button" class="btn btn-xs danger-outline" data-sim-del="${esc(ev.id)}">Excluir</button>
+          </div>`,
+        ];
+      })
+    );
+  }
 
   function isoDataUtc(dt) {
     return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
@@ -2860,13 +2993,32 @@
     }
     atualizarPreviewModalStress();
   }
-  function abrirModalStress() {
+  function abrirModalStress(eventoEditar = null) {
     const u = usinaAtual();
     const modal = el('modal-sim-manut');
     if (!u || !modal) return;
     const e = estadoSim(u.cod_ceg);
+    simModalEditId = eventoEditar && eventoEditar.id ? eventoEditar.id : null;
+    const editando = Boolean(simModalEditId);
+
+    if (el('modal-sim-titulo')) {
+      el('modal-sim-titulo').textContent = editando
+        ? 'Editar Manutenção Simulada'
+        : 'Configurar Manutenção / Estresse Simulado';
+    }
+    if (el('btn-aplicar-modal-stress')) {
+      el('btn-aplicar-modal-stress').textContent = editando
+        ? 'Salvar Alterações na Simulação'
+        : '+ Aplicar na Simulação';
+    }
+
     simModalUgsDisponiveis = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base);
-    simModalUgsSelecionadas = new Set(simModalUgsDisponiveis.map(g => g.ug));
+    if (editando && Array.isArray(eventoEditar.ugs) && eventoEditar.ugs.length) {
+      const validos = new Set(simModalUgsDisponiveis.map(g => g.ug));
+      simModalUgsSelecionadas = new Set(eventoEditar.ugs.filter(n => validos.has(n)));
+    } else {
+      simModalUgsSelecionadas = new Set(simModalUgsDisponiveis.map(g => g.ug));
+    }
 
     el('sim-manut-usina').value = `${u.usina} · ${u.polo}`;
     renderMultiselectUg();
@@ -2882,7 +3034,7 @@
       ],
       () => atualizarPreviewModalStress()
     );
-    definirValorCselect('sim-manut-estagio', 'cs-sim-estagio', 'Planejado');
+    definirValorCselect('sim-manut-estagio', 'cs-sim-estagio', editando ? (eventoEditar.estagio || 'Planejado') : 'Planejado');
 
     const tiposPadrao = ['MPP0', 'MPP1', 'MPP2', 'MOD', 'MPAIE', 'PRED', 'C. PROG', 'CSEG', 'BS', 'CORR', 'OUTROS'];
     const tiposDados = (D.manutencoes || []).map(m => m.tipo_manut).filter(Boolean);
@@ -2897,7 +3049,10 @@
       }),
       () => atualizarPreviewModalStress()
     );
-    definirValorCselect('sim-manut-tipo', 'cs-sim-tipo', tiposUnicos.includes('MPP1') ? 'MPP1' : tiposUnicos[0]);
+    const tipoIni = editando && tiposUnicos.includes(eventoEditar.tipo_manut)
+      ? eventoEditar.tipo_manut
+      : (tiposUnicos.includes('MPP1') ? 'MPP1' : tiposUnicos[0]);
+    definirValorCselect('sim-manut-tipo', 'cs-sim-tipo', tipoIni);
 
     const classifsUhe = (D.classificadores_ons || []).filter(c => c.aplica_uhe !== false);
     configurarCselectSimples(
@@ -2917,7 +3072,7 @@
       ],
       val => aoMudarClassificadorModal(val)
     );
-    definirValorCselect('sim-manut-classificador', 'cs-sim-classificador', 'GUM');
+    definirValorCselect('sim-manut-classificador', 'cs-sim-classificador', editando ? (eventoEditar.classificador ?? '') : 'GUM');
 
     configurarCselectSimples(
       'sim-manut-param',
@@ -2930,7 +3085,7 @@
       ],
       () => atualizarPreviewModalStress()
     );
-    definirValorCselect('sim-manut-param', 'cs-sim-param', 'HDP');
+    definirValorCselect('sim-manut-param', 'cs-sim-param', editando ? (eventoEditar.campo_impacto || 'HDP') : 'HDP');
 
     configurarCselectSimples(
       'sim-manut-retorno',
@@ -2945,14 +3100,15 @@
         atualizarPreviewModalStress();
       }
     );
-    definirValorCselect('sim-manut-retorno', 'cs-sim-retorno', 'nao');
+    definirValorCselect('sim-manut-retorno', 'cs-sim-retorno', editando && eventoEditar.retorno_diario ? 'sim' : 'nao');
 
     const mSel = el('mes-edicao').value || M.moverMes(D.mes_base, 1);
     const [anoM, numM] = mSel.split('-').map(Number);
     const diasMes = new Date(Date.UTC(anoM, numM, 0)).getUTCDate();
-    const diasIni = Math.min(10, diasMes);
-    const iniIso = `${mSel}-01`;
-    const fimIso = `${mSel}-${String(diasIni).padStart(2, '0')}`;
+    const diasPadrao = Math.min(10, diasMes);
+    const iniIso = editando && eventoEditar.data_inicio ? eventoEditar.data_inicio : `${mSel}-01`;
+    const fimIso = editando && eventoEditar.data_fim ? eventoEditar.data_fim : `${mSel}-${String(diasPadrao).padStart(2, '0')}`;
+    const diasIni = diffDiasInclusivo(iniIso, fimIso) || diasPadrao;
     const mesMin = M.moverMes(D.mes_base, 1);
     const mesMax = M.moverMes(D.mes_base, e.horizonte);
     const [anoMax, numMax] = mesMax.split('-').map(Number);
@@ -2965,11 +3121,11 @@
     el('sim-manut-inicio').value = iniIso;
     el('sim-manut-fim').value = fimIso;
     el('sim-manut-dias').value = String(diasIni);
-    el('sim-manut-bruto').value = String(diasIni * 24);
-    el('sim-manut-expurgada').checked = false;
-    el('sim-manut-expurgo-h').value = '0';
-    el('sim-manut-expurgo-h').disabled = true;
-    el('sim-manut-desc').value = '';
+    el('sim-manut-bruto').value = String(editando && Number.isFinite(eventoEditar.horas_brutas) ? eventoEditar.horas_brutas : diasIni * 24);
+    el('sim-manut-expurgada').checked = Boolean(editando && eventoEditar.expurgada);
+    el('sim-manut-expurgo-h').value = String(editando && eventoEditar.expurgada ? (eventoEditar.expurgo_horas ?? 0) : 0);
+    el('sim-manut-expurgo-h').disabled = !el('sim-manut-expurgada').checked;
+    el('sim-manut-desc').value = editando ? (eventoEditar.descricao || '') : '';
 
     fecharMenusCselect();
     modal.hidden = false;
@@ -2979,6 +3135,7 @@
   }
   function fecharModalStress() {
     fecharMenusCselect();
+    simModalEditId = null;
     const modal = el('modal-sim-manut');
     if (!modal) return;
     modal.hidden = true;
@@ -2986,7 +3143,10 @@
   }
 
   if (el('btn-abrir-modal-stress')) {
-    el('btn-abrir-modal-stress').onclick = abrirModalStress;
+    el('btn-abrir-modal-stress').onclick = () => abrirModalStress(null);
+  }
+  if (el('btn-sim-incluir-evento')) {
+    el('btn-sim-incluir-evento').onclick = () => abrirModalStress(null);
   }
   if (el('btn-fechar-modal-stress')) {
     el('btn-fechar-modal-stress').onclick = fecharModalStress;
@@ -3150,34 +3310,493 @@
       }
       if (!rateio.meses.length) return;
 
-      const selecionadas = dadosModal.ugs;
-      const ordemCampos = ['HDF', 'HEDF', 'HDP', 'HEDP', 'HDCE', 'HRD'];
-
-      for (const item of rateio.meses) {
-        const hp = M.horasMes(item.mes);
-        for (const ugNum of selecionadas) {
-          const k = `${item.mes}|${ugNum}`;
-          if (!e.edicoes[k]) e.edicoes[k] = {};
-          for (const campo of ordemCampos) {
-            const add = item[campo] || 0;
-            if (add <= 0) continue;
-            const atualTipo = e.edicoes[k][campo] || 0;
-            const outras = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
-            const excesso = atualTipo + add + outras - hp;
-            if (excesso > 0 && campo !== 'HRD' && (e.edicoes[k].HRD || 0) > 0) {
-              e.edicoes[k].HRD = Number(Math.max(0, e.edicoes[k].HRD - excesso).toFixed(2));
-            }
-            const outrasPos = M.CAMPOS.filter(c => c !== campo).reduce((s, c) => s + (e.edicoes[k][c] || 0), 0);
-            e.edicoes[k][campo] = Number(Math.min(Math.max(0, hp - outrasPos), atualTipo + add).toFixed(2));
-          }
-        }
+      const registro = {
+        id: simModalEditId || `sim_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        ...dadosModal,
+        horas_brutas: rateio.horas_brutas,
+        expurgo_horas: rateio.expurgo_horas,
+      };
+      if (simModalEditId) {
+        const idx = e.simuladas.findIndex(x => x.id === simModalEditId);
+        if (idx >= 0) e.simuladas[idx] = registro;
+        else e.simuladas.push(registro);
+      } else {
+        e.simuladas.push(registro);
       }
 
+      reconstruirEdicoesComSimuladas(u, e);
       el('mes-edicao').value = rateio.meses[0].mes;
+      if (el('estado-efetivar')) {
+        el('estado-efetivar').textContent = '';
+        el('estado-efetivar').className = 'status-msg';
+      }
       guardar();
+      renderTabelaSimuladas();
       renderEditor();
       renderSimulacao();
       fecharModalStress();
+    };
+  }
+
+  if (el('tabela-sim-manutencoes')) {
+    el('tabela-sim-manutencoes').onclick = ev => {
+      const btnEdit = ev.target.closest('button[data-sim-edit]');
+      const btnDel = ev.target.closest('button[data-sim-del]');
+      if (!btnEdit && !btnDel) return;
+      const u = usinaAtual();
+      if (!u) return;
+      const e = estadoSim(u.cod_ceg);
+      if (btnEdit) {
+        const alvo = (e.simuladas || []).find(x => x.id === btnEdit.dataset.simEdit);
+        if (alvo) abrirModalStress(alvo);
+      } else if (btnDel) {
+        e.simuladas = (e.simuladas || []).filter(x => x.id !== btnDel.dataset.simDel);
+        reconstruirEdicoesComSimuladas(u, e);
+        guardar();
+        renderTabelaSimuladas();
+        renderEditor();
+        renderSimulacao();
+      }
+    };
+  }
+  if (el('btn-sim-limpar-eventos')) {
+    el('btn-sim-limpar-eventos').onclick = () => {
+      const u = usinaAtual();
+      if (!u) return;
+      const e = estadoSim(u.cod_ceg);
+      e.simuladas = [];
+      reconstruirEdicoesComSimuladas(u, e);
+      guardar();
+      renderTabelaSimuladas();
+      renderEditor();
+      renderSimulacao();
+    };
+  }
+
+  // ===== MODAL DE EFETIVAÇÃO NO PLANO REAL =====
+  let efetivarAlvoCustom = null; // null = cenário ativo; ou { cod_ceg, usina, eventos, origemSalvo }
+
+  function fecharModalEfetivar() {
+    efetivarAlvoCustom = null;
+    const m = el('modal-efetivar-sim');
+    if (!m) return;
+    m.hidden = true;
+    document.body.style.overflow = '';
+  }
+  function abrirModalEfetivar(alvoCustom = null) {
+    const u = usinaAtual();
+    if (!u) return;
+    const e = estadoSim(u.cod_ceg);
+    const lista = alvoCustom ? (alvoCustom.eventos || []) : (e.simuladas || []);
+    if (!lista.length) return;
+    efetivarAlvoCustom = alvoCustom;
+
+    const statusEl = el('estado-efetivar');
+    if (!temServidorDisponivel()) {
+      efetivarAlvoCustom = null;
+      if (statusEl) {
+        statusEl.className = 'status-msg warn';
+        statusEl.innerHTML =
+          'Para efetivar o cenário no banco real de Paradas Programadas, inicie o servidor local com <code>python scripts/executar.py --painel</code>.';
+      }
+      return;
+    }
+
+    const totalUgs = D.horas.filter(r => r.cod_ceg === u.cod_ceg && mes(r.data) === D.mes_base).length;
+    const totalRegistros = lista.reduce((s, ev) => s + (ev.ugs?.length || 0), 0);
+    const box = el('efetivar-resumo-lista');
+    if (box) {
+      const subTitulo = alvoCustom?.nome ? ` · Cenário salvo "${alvoCustom.nome}"` : '';
+      box.innerHTML =
+        `<div class="efetivar-item-meta"><strong>${esc(u.usina)}</strong>${esc(subTitulo)} · ${lista.length} ${lista.length === 1 ? 'evento' : 'eventos'} (${totalRegistros} registro${totalRegistros === 1 ? '' : 's'} por UG a gravar no banco real)</div>` +
+        lista
+          .map(ev => {
+            const infoCls = infoClassificadorModal(ev.classificador);
+            const corTipo = TIPO_COR[ev.tipo_manut] || '#475569';
+            return `<div class="efetivar-item">
+              <div class="efetivar-item-top">
+                <span>
+                  <strong>${esc(formatarUgsResumo(ev.ugs, totalUgs))}</strong>
+                  <span class="badge info cselect-pill-sm" style="background:${corTipo}20;color:${corTipo}">${esc(ev.tipo_manut)}</span>
+                  ${badgeClassificador(ev.classificador, infoCls?.grupo_ons)}
+                </span>
+                <span>${dataDia(ev.data_inicio)} a ${dataDia(ev.data_fim)} · <strong>${numero(ev.horas_brutas, 1)} h</strong></span>
+              </div>
+              ${ev.descricao ? `<div class="efetivar-item-meta">${esc(ev.descricao)}</div>` : ''}
+            </div>`;
+          })
+          .join('');
+    }
+    if (el('efetivar-erro')) el('efetivar-erro').hidden = true;
+    if (el('btn-confirmar-efetivar')) {
+      el('btn-confirmar-efetivar').disabled = false;
+      el('btn-confirmar-efetivar').textContent = '✓ Confirmar e Tornar Real';
+    }
+    el('modal-efetivar-sim').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  if (el('btn-sim-efetivar-real')) {
+    el('btn-sim-efetivar-real').onclick = () => abrirModalEfetivar(null);
+  }
+  if (el('btn-fechar-modal-efetivar')) {
+    el('btn-fechar-modal-efetivar').onclick = fecharModalEfetivar;
+  }
+  if (el('btn-cancelar-efetivar')) {
+    el('btn-cancelar-efetivar').onclick = fecharModalEfetivar;
+  }
+  if (el('modal-efetivar-sim')) {
+    el('modal-efetivar-sim').addEventListener('click', ev => {
+      if (ev.target === el('modal-efetivar-sim')) fecharModalEfetivar();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && !el('modal-efetivar-sim').hidden) fecharModalEfetivar();
+    });
+  }
+  if (el('btn-confirmar-efetivar')) {
+    el('btn-confirmar-efetivar').onclick = async () => {
+      const u = usinaAtual();
+      if (!u) return;
+      const e = estadoSim(u.cod_ceg);
+      const lista = efetivarAlvoCustom ? (efetivarAlvoCustom.eventos || []) : (e.simuladas || []);
+      const cegAlvo = efetivarAlvoCustom?.cod_ceg || u.cod_ceg;
+      const eraAtivo = !efetivarAlvoCustom;
+      if (!lista.length) return;
+      const btn = el('btn-confirmar-efetivar');
+      const err = el('efetivar-erro');
+      btn.disabled = true;
+      btn.textContent = 'Salvando no banco real…';
+      if (err) err.hidden = true;
+      try {
+        const resp = await fetch(apiUrl('/api/manutencoes/efetivar'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cod_ceg: cegAlvo, eventos: lista }),
+        });
+        const corpo = await resp.json();
+        if (!resp.ok) throw new Error(corpo.erro || 'Não foi possível efetivar as manutenções.');
+
+        if (corpo.dados) {
+          D = corpo.dados;
+        }
+        if (eraAtivo) {
+          e.simuladas = [];
+          e.baseModo = 'plano';
+        }
+        reconstruirEdicoesComSimuladas(u, e);
+        guardar();
+        fecharModalEfetivar();
+
+        popularFiltros();
+        configurarSimulacao();
+        const statusEl = el('estado-efetivar');
+        if (statusEl) {
+          statusEl.className = 'status-msg ok';
+          statusEl.innerHTML =
+            `✓ <strong>${corpo.adicionadas} ${corpo.adicionadas === 1 ? 'registro efetivado' : 'registros efetivados'}</strong> no banco real de Paradas Programadas. ` +
+            `<button type="button" class="link-inline" id="btn-ver-efetivadas-manut">Abrir Paradas Programadas</button>`;
+          if (el('btn-ver-efetivadas-manut')) {
+            el('btn-ver-efetivadas-manut').onclick = () => irPara('manutencoes');
+          }
+        }
+      } catch (erro) {
+        if (err) {
+          err.textContent = erro.message;
+          err.hidden = false;
+        }
+        btn.disabled = false;
+        btn.textContent = '✓ Confirmar e Tornar Real';
+      }
+    };
+  }
+
+  // ===== BIBLIOTECA DE CENÁRIOS SIMULADOS SALVOS (USO FUTURO) =====
+  const CHAVE_SALVOS_LOCAL = 'ctg-cenarios-salvos-v1';
+  let cacheCenariosSalvos = [];
+
+  function lerSalvosLocal(codCeg = null) {
+    try {
+      const lista = JSON.parse(localStorage.getItem(CHAVE_SALVOS_LOCAL) || '[]');
+      if (!Array.isArray(lista)) return [];
+      const filt = codCeg ? lista.filter(c => c && c.cod_ceg === codCeg) : lista;
+      return filt.sort((a, b) => String(b.atualizado_em || b.criado_em || '').localeCompare(String(a.atualizado_em || a.criado_em || '')));
+    } catch (_) {
+      return [];
+    }
+  }
+  function gravarSalvosLocal(lista) {
+    try { localStorage.setItem(CHAVE_SALVOS_LOCAL, JSON.stringify(lista)); } catch (_) {}
+  }
+  async function carregarCenariosSalvos(codCeg) {
+    if (temServidorDisponivel()) {
+      try {
+        const resp = await fetch(apiUrl(`/api/cenarios-salvos?cod_ceg=${encodeURIComponent(codCeg)}`));
+        if (resp.ok) {
+          const corpo = await resp.json();
+          cacheCenariosSalvos = Array.isArray(corpo.cenarios) ? corpo.cenarios : [];
+          return cacheCenariosSalvos;
+        }
+      } catch (_) {}
+    }
+    cacheCenariosSalvos = lerSalvosLocal(codCeg);
+    return cacheCenariosSalvos;
+  }
+  async function atualizarBadgeCenariosSalvos() {
+    const u = usinaAtual();
+    const badge = el('badge-qtd-salvos');
+    if (!u || !badge) return;
+    const lista = await carregarCenariosSalvos(u.cod_ceg);
+    badge.textContent = String(lista.length);
+    badge.className = `badge ${lista.length ? 'info' : 'neutral'} cselect-pill-sm`;
+  }
+  function formatarDataHoraBr(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16);
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function fecharModalSalvarCenario() {
+    const m = el('modal-salvar-cenario');
+    if (!m) return;
+    m.hidden = true;
+    document.body.style.overflow = '';
+  }
+  function abrirModalSalvarCenario() {
+    const u = usinaAtual();
+    const m = el('modal-salvar-cenario');
+    if (!u || !m) return;
+    const e = estadoSim(u.cod_ceg);
+    const qtdSim = (e.simuladas || []).length;
+    el('salvar-cen-nome').value = '';
+    el('salvar-cen-desc').value = '';
+    if (el('salvar-cen-erro')) el('salvar-cen-erro').hidden = true;
+    if (el('salvar-cen-resumo')) {
+      el('salvar-cen-resumo').innerHTML = `
+        <div class="modal-preview-meta">
+          <strong>${esc(u.usina)}</strong> · Horizonte: <strong>${e.horizonte} meses</strong> ·
+          ID Ref.: <strong>${pct(e.idRef)}</strong> ·
+          Expurgos ONS: <strong>${e.aplicarExpurgos !== false ? 'Aplicados' : 'Desativados'}</strong> ·
+          Eventos simulados: <strong>${qtdSim}</strong>
+        </div>`;
+    }
+    m.hidden = false;
+    document.body.style.overflow = 'hidden';
+    el('salvar-cen-nome')?.focus();
+  }
+
+  function fecharModalCenariosSalvos() {
+    const m = el('modal-cenarios-salvos');
+    if (!m) return;
+    m.hidden = true;
+    document.body.style.overflow = '';
+  }
+  function renderListaCenariosSalvos(lista) {
+    const box = el('lista-cenarios-salvos');
+    if (!box) return;
+    if (!lista.length) {
+      box.innerHTML =
+        '<div class="empty-state" style="padding:24px">Nenhum cenário simulado salvo para esta usina ainda. Clique em <strong>Salvar Cenário</strong> para guardar a configuração atual para uso futuro.</div>';
+      return;
+    }
+    box.innerHTML = lista
+      .map(c => {
+        const qtdEv = Array.isArray(c.simuladas) ? c.simuladas.length : 0;
+        const qtdRegs = (c.simuladas || []).reduce((s, ev) => s + (ev.ugs?.length || 0), 0);
+        return `<div class="salvo-card">
+          <div class="salvo-card-head">
+            <span class="salvo-card-title">${esc(c.nome)}</span>
+            <span class="salvo-card-date">Salvo em ${esc(formatarDataHoraBr(c.atualizado_em || c.criado_em))}</span>
+          </div>
+          ${c.descricao ? `<div class="salvo-card-desc">${esc(c.descricao)}</div>` : ''}
+          <div class="salvo-card-tags">
+            <span class="badge neutral cselect-pill-sm">Horizonte: ${c.horizonte || 24}m</span>
+            <span class="badge neutral cselect-pill-sm">ID Ref.: ${pct(c.idRef)}</span>
+            <span class="badge ${c.aplicarExpurgos !== false ? '' : 'warn'} cselect-pill-sm">Expurgos ONS: ${c.aplicarExpurgos !== false ? 'Sim' : 'Não'}</span>
+            <span class="badge info cselect-pill-sm">${qtdEv} ${qtdEv === 1 ? 'evento simulado' : 'eventos simulados'}${qtdRegs ? ` (${qtdRegs} UGs)` : ''}</span>
+          </div>
+          <div class="salvo-card-actions">
+            <button type="button" class="btn secondary btn-xs" data-cen-load="${esc(c.id)}">Carregar no Simulador</button>
+            ${qtdEv > 0 ? `<button type="button" class="btn primary btn-xs" data-cen-real="${esc(c.id)}">✓ Efetivar no Plano Real</button>` : ''}
+            <button type="button" class="btn btn-xs danger-outline" data-cen-del="${esc(c.id)}">Excluir</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+  }
+  async function abrirModalCenariosSalvos() {
+    const u = usinaAtual();
+    const m = el('modal-cenarios-salvos');
+    if (!u || !m) return;
+    if (el('modal-cenarios-salvos-titulo')) {
+      el('modal-cenarios-salvos-titulo').textContent = `Cenários Simulados Salvos · ${u.usina}`;
+    }
+    if (el('salvos-erro')) el('salvos-erro').hidden = true;
+    m.hidden = false;
+    document.body.style.overflow = 'hidden';
+    const lista = await carregarCenariosSalvos(u.cod_ceg);
+    renderListaCenariosSalvos(lista);
+  }
+
+  if (el('btn-sim-salvar-cenario')) el('btn-sim-salvar-cenario').onclick = abrirModalSalvarCenario;
+  if (el('btn-fechar-modal-salvar')) el('btn-fechar-modal-salvar').onclick = fecharModalSalvarCenario;
+  if (el('btn-cancelar-salvar-cen')) el('btn-cancelar-salvar-cen').onclick = fecharModalSalvarCenario;
+  if (el('modal-salvar-cenario')) {
+    el('modal-salvar-cenario').addEventListener('click', ev => {
+      if (ev.target === el('modal-salvar-cenario')) fecharModalSalvarCenario();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && !el('modal-salvar-cenario').hidden) fecharModalSalvarCenario();
+    });
+  }
+  if (el('form-salvar-cenario')) {
+    el('form-salvar-cenario').onsubmit = async ev => {
+      ev.preventDefault();
+      const u = usinaAtual();
+      if (!u) return;
+      const e = estadoSim(u.cod_ceg);
+      const nome = (el('salvar-cen-nome').value || '').trim();
+      const descricao = (el('salvar-cen-desc').value || '').trim();
+      const err = el('salvar-cen-erro');
+      if (!nome) {
+        err.textContent = 'Informe um nome para identificar o cenário salvo.';
+        err.hidden = false;
+        return;
+      }
+      const btn = el('btn-confirmar-salvar-cen');
+      btn.disabled = true;
+      btn.textContent = 'Salvando…';
+      err.hidden = true;
+      const payload = {
+        nome,
+        descricao,
+        cod_ceg: u.cod_ceg,
+        usina: u.usina,
+        horizonte: e.horizonte,
+        idRef: e.idRef,
+        aplicarExpurgos: e.aplicarExpurgos !== false,
+        baseModo: e.baseModo || 'plano',
+        simuladas: JSON.parse(JSON.stringify(e.simuladas || [])),
+        edicoes: JSON.parse(JSON.stringify(e.edicoes || {})),
+      };
+      try {
+        if (temServidorDisponivel()) {
+          const resp = await fetch(apiUrl('/api/cenarios-salvos'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const corpo = await resp.json();
+          if (!resp.ok) throw new Error(corpo.erro || 'Não foi possível salvar o cenário.');
+          cacheCenariosSalvos = corpo.cenarios || [];
+        } else {
+          const agora = new Date().toISOString();
+          const todos = lerSalvosLocal();
+          const novo = { ...payload, id: `cen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, criado_em: agora, atualizado_em: agora };
+          todos.unshift(novo);
+          gravarSalvosLocal(todos);
+          cacheCenariosSalvos = lerSalvosLocal(u.cod_ceg);
+        }
+        fecharModalSalvarCenario();
+        atualizarBadgeCenariosSalvos();
+        const statusEl = el('estado-efetivar');
+        if (statusEl) {
+          statusEl.className = 'status-msg ok';
+          statusEl.innerHTML =
+            `✓ Cenário <strong>${esc(nome)}</strong> salvo para uso futuro (sem alterar o plano real). ` +
+            `<button type="button" class="link-inline" id="btn-abrir-salvos-link">Ver Cenários Salvos</button>`;
+          if (el('btn-abrir-salvos-link')) el('btn-abrir-salvos-link').onclick = abrirModalCenariosSalvos;
+        }
+      } catch (erro) {
+        err.textContent = erro.message;
+        err.hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar Cenário';
+      }
+    };
+  }
+
+  if (el('btn-sim-ver-salvos')) el('btn-sim-ver-salvos').onclick = abrirModalCenariosSalvos;
+  if (el('btn-fechar-modal-salvos')) el('btn-fechar-modal-salvos').onclick = fecharModalCenariosSalvos;
+  if (el('btn-fechar-rodape-salvos')) el('btn-fechar-rodape-salvos').onclick = fecharModalCenariosSalvos;
+  if (el('modal-cenarios-salvos')) {
+    el('modal-cenarios-salvos').addEventListener('click', ev => {
+      if (ev.target === el('modal-cenarios-salvos')) fecharModalCenariosSalvos();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && !el('modal-cenarios-salvos').hidden) fecharModalCenariosSalvos();
+    });
+  }
+  if (el('lista-cenarios-salvos')) {
+    el('lista-cenarios-salvos').onclick = async ev => {
+      const btnLoad = ev.target.closest('button[data-cen-load]');
+      const btnReal = ev.target.closest('button[data-cen-real]');
+      const btnDel = ev.target.closest('button[data-cen-del]');
+      if (!btnLoad && !btnReal && !btnDel) return;
+      const u = usinaAtual();
+      if (!u) return;
+
+      if (btnLoad) {
+        const alvo = cacheCenariosSalvos.find(c => c.id === btnLoad.dataset.cenLoad);
+        if (!alvo) return;
+        const e = estadoSim(u.cod_ceg);
+        e.horizonte = Number(alvo.horizonte) || 24;
+        e.idRef = Number.isFinite(alvo.idRef) ? alvo.idRef : u.id_referencia;
+        e.aplicarExpurgos = alvo.aplicarExpurgos !== false;
+        e.baseModo = alvo.baseModo === 'zero' ? 'zero' : 'plano';
+        e.simuladas = JSON.parse(JSON.stringify(alvo.simuladas || []));
+        if (alvo.edicoes && typeof alvo.edicoes === 'object') {
+          e.edicoes = JSON.parse(JSON.stringify(alvo.edicoes));
+        } else {
+          reconstruirEdicoesComSimuladas(u, e);
+        }
+        guardar();
+        fecharModalCenariosSalvos();
+        configurarSimulacao();
+        const statusEl = el('estado-efetivar');
+        if (statusEl) {
+          statusEl.className = 'status-msg ok';
+          statusEl.innerHTML = `Cenário <strong>${esc(alvo.nome)}</strong> carregado no simulador (somente simulação).`;
+        }
+      } else if (btnReal) {
+        const alvo = cacheCenariosSalvos.find(c => c.id === btnReal.dataset.cenReal);
+        if (!alvo || !Array.isArray(alvo.simuladas) || !alvo.simuladas.length) return;
+        fecharModalCenariosSalvos();
+        abrirModalEfetivar({
+          cod_ceg: alvo.cod_ceg,
+          usina: alvo.usina,
+          nome: alvo.nome,
+          eventos: alvo.simuladas,
+        });
+      } else if (btnDel) {
+        const cid = btnDel.dataset.cenDel;
+        const err = el('salvos-erro');
+        if (err) err.hidden = true;
+        try {
+          if (temServidorDisponivel()) {
+            const resp = await fetch(apiUrl('/api/cenarios-salvos/excluir'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: cid, cod_ceg: u.cod_ceg }),
+            });
+            const corpo = await resp.json();
+            if (!resp.ok) throw new Error(corpo.erro || 'Não foi possível excluir o cenário.');
+            cacheCenariosSalvos = corpo.cenarios || [];
+          } else {
+            const todos = lerSalvosLocal().filter(c => c.id !== cid);
+            gravarSalvosLocal(todos);
+            cacheCenariosSalvos = lerSalvosLocal(u.cod_ceg);
+          }
+          renderListaCenariosSalvos(cacheCenariosSalvos);
+          atualizarBadgeCenariosSalvos();
+        } catch (erro) {
+          if (err) {
+            err.textContent = erro.message;
+            err.hidden = false;
+          }
+        }
+      }
     };
   }
 

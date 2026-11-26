@@ -18,8 +18,15 @@ from scripts.app.manutencoes import (
     agregar_manutencoes_mensal,
     avaliar_expurgo_evento,
     calcular_auditoria_franquias,
+    efetivar_manutencoes_simuladas,
+    ler_manutencoes_adicionais,
 )
-from scripts.app.painel import ServidorPainel
+from scripts.app.painel import (
+    ServidorPainel,
+    excluir_cenario_nomeado,
+    listar_cenarios_salvos,
+    salvar_cenario_nomeado,
+)
 
 RAIZ = Path(__file__).resolve().parents[1]
 PASTA = RAIZ / 'resultados'
@@ -172,6 +179,69 @@ class ManutencoesTest(unittest.TestCase):
             ).fetchone()
             self.assertGreater(fr_stats[0], 20)
             self.assertGreater(fr_stats[1], 0)
+
+    def test_efetivar_manutencoes_simuladas_e_leitura_adicional(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            qtd = efetivar_manutencoes_simuladas(
+                tmp,
+                'UHE.PH.SP.000647-5.01',  # Canoas I (3 UGs)
+                [
+                    {
+                        'ugs': [1, 2],
+                        'tipo_manut': 'MPP1',
+                        'classificador': 'GIM',
+                        'estagio': 'Planejado',
+                        'data_inicio': '2026-11-01',
+                        'data_fim': '2026-11-05',
+                        'retorno_diario': False,
+                        'horas_brutas': 120.0,
+                        'expurgada': True,
+                        'expurgo_horas': 48.0,
+                        'descricao': 'Teste efetivacao simulada',
+                    }
+                ],
+            )
+            self.assertEqual(qtd, 2)
+            lidos = ler_manutencoes_adicionais(tmp)
+            self.assertEqual(len(lidos), 2)
+            self.assertEqual({e['ug_str'] for e in lidos}, {'UG01', 'UG02'})
+            for e in lidos:
+                self.assertEqual(e['usina'], 'Canoas I')
+                self.assertEqual(e['origem_dado'], 'PAINEL')
+                self.assertAlmostEqual(e['horas_brutas'], 120.0)
+                self.assertAlmostEqual(e['expurgo_horas'], 48.0)
+                self.assertAlmostEqual(e['indisponibilidade_horas'], 72.0)
+                self.assertEqual(e['destino_ons'], 'HRD + HDP')
+            with self.assertRaises(ValueError):
+                efetivar_manutencoes_simuladas(
+                    tmp,
+                    'UHE.PH.SP.000647-5.01',
+                    [{'ugs': [99], 'data_inicio': '2026-11-01', 'data_fim': '2026-11-02', 'horas_brutas': 48}],
+                )
+
+    def test_cenarios_simulados_salvos_listar_e_excluir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            ceg = 'UHE.PH.SP.000647-5.01'
+            salvo, lista = salvar_cenario_nomeado(tmp, {
+                'nome': 'Estresse MPP2',
+                'descricao': 'Cenario de sensibilidade',
+                'cod_ceg': ceg,
+                'usina': 'Canoas I',
+                'horizonte': 24,
+                'idRef': 0.9448,
+                'aplicarExpurgos': True,
+                'baseModo': 'plano',
+                'simuladas': [{'id': 's1', 'ugs': [1], 'tipo_manut': 'MPP2'}],
+                'edicoes': {'2026-11|1': {'HDP': 120}},
+            })
+            self.assertEqual(len(lista), 1)
+            self.assertEqual(salvo['nome'], 'Estresse MPP2')
+            self.assertEqual(len(listar_cenarios_salvos(tmp, ceg)), 1)
+            self.assertEqual(len(listar_cenarios_salvos(tmp, 'OUTRO')), 0)
+            apos = excluir_cenario_nomeado(tmp, salvo['id'], ceg)
+            self.assertEqual(len(apos), 0)
 
 
 class ProjecaoSinTest(unittest.TestCase):

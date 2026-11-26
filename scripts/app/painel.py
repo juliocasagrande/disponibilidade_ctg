@@ -15,7 +15,7 @@ import duckdb
 
 from . import admin as admin_mod
 from .caminhos import BANCO_PADRAO, HTML_PAINEL, PASTA_PAINEL, PASTA_SQL, caminho_tabela
-from .manutencoes import CLASSIFICADORES_ONS
+from .manutencoes import CLASSIFICADORES_ONS, carregar_manutencoes, efetivar_manutencoes_simuladas
 from .projecao_sin import CTG_POLO_FAIXA
 
 HORAS = ('HDP', 'HDF', 'HEDP', 'HEDF', 'HRD', 'HDCE')
@@ -217,6 +217,119 @@ def preparar_cenario(con, pasta, entrada):
     con.execute((PASTA_SQL / '05_simulacao.sql').read_text(encoding='utf-8'))
 
 
+def _caminho_cenarios_salvos(raiz):
+    return Path(raiz) / 'dados/cenarios_salvos.json'
+
+
+def listar_cenarios_salvos(raiz, cod_ceg=None):
+    caminho = _caminho_cenarios_salvos(raiz)
+    if not caminho.is_file():
+        return []
+    try:
+        lista = json.loads(caminho.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+    if not isinstance(lista, list):
+        return []
+    if cod_ceg:
+        lista = [c for c in lista if isinstance(c, dict) and c.get('cod_ceg') == cod_ceg]
+    return sorted(lista, key=lambda c: str(c.get('atualizado_em') or c.get('criado_em') or ''), reverse=True)
+
+
+def salvar_cenario_nomeado(raiz, entrada):
+    nome = str(entrada.get('nome') or '').strip()
+    if not nome:
+        raise ValueError('Informe um nome para o cenario simulado.')
+    if len(nome) > 100:
+        raise ValueError('O nome do cenario deve ter no maximo 100 caracteres.')
+    cod_ceg = str(entrada.get('cod_ceg') or '').strip()
+    if not cod_ceg:
+        raise ValueError('Usina invalida para salvar o cenario.')
+    horizonte = int(entrada.get('horizonte') or 24)
+    if not 1 <= horizonte <= 120:
+        raise ValueError('Horizonte invalido.')
+    id_ref = entrada.get('idRef')
+    if id_ref is not None:
+        id_ref = float(id_ref)
+        if not math.isfinite(id_ref) or not 0 < id_ref <= 1:
+            raise ValueError('ID de referencia invalido.')
+    simuladas = entrada.get('simuladas') if isinstance(entrada.get('simuladas'), list) else []
+    edicoes = entrada.get('edicoes') if isinstance(entrada.get('edicoes'), dict) else {}
+
+    agora = datetime.now(timezone.utc).isoformat()
+    cid = str(entrada.get('id') or '').strip() or f"cen_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+    registro = {
+        'id': cid,
+        'nome': nome,
+        'descricao': str(entrada.get('descricao') or '').strip()[:240],
+        'cod_ceg': cod_ceg,
+        'usina': str(entrada.get('usina') or '').strip(),
+        'horizonte': horizonte,
+        'idRef': id_ref,
+        'aplicarExpurgos': bool(entrada.get('aplicarExpurgos', True)),
+        'baseModo': 'zero' if entrada.get('baseModo') == 'zero' else 'plano',
+        'simuladas': simuladas,
+        'edicoes': edicoes,
+        'criado_em': str(entrada.get('criado_em') or agora),
+        'atualizado_em': agora,
+    }
+
+    caminho = _caminho_cenarios_salvos(raiz)
+    existentes = listar_cenarios_salvos(raiz)
+    atualizados = [c for c in existentes if c.get('id') != cid]
+    atualizados.insert(0, registro)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(atualizados, indent=2, ensure_ascii=False), encoding='utf-8')
+    tmp.replace(caminho)
+    return registro, listar_cenarios_salvos(raiz, cod_ceg)
+
+
+def excluir_cenario_nomeado(raiz, cenario_id, cod_ceg=None):
+    cid = str(cenario_id or '').strip()
+    if not cid:
+        raise ValueError('ID do cenario obrigatorio.')
+    caminho = _caminho_cenarios_salvos(raiz)
+    existentes = listar_cenarios_salvos(raiz)
+    atualizados = [c for c in existentes if c.get('id') != cid]
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(atualizados, indent=2, ensure_ascii=False), encoding='utf-8')
+    tmp.replace(caminho)
+    return listar_cenarios_salvos(raiz, cod_ceg)
+
+
+def efetivar_cenario_real(raiz, entrada):
+    """Efetiva manutencoes simuladas no plano real, atualiza DuckDB, Parquets e HTML."""
+    raiz = Path(raiz)
+    cod_ceg = entrada.get('cod_ceg')
+    eventos = entrada.get('eventos')
+    qtd_adicionadas = efetivar_manutencoes_simuladas(raiz, cod_ceg, eventos)
+    banco = raiz / BANCO_PADRAO
+    pasta_res = raiz / 'resultados'
+    with duckdb.connect(str(banco)) as con:
+        con.execute('BEGIN')
+        try:
+            qtd_ev, qtd_mes = carregar_manutencoes(con, raiz)
+            con.execute('COMMIT')
+        except Exception:
+            con.execute('ROLLBACK')
+            raise
+        for nome in ('manutencoes_programadas', 'manutencoes_ug_mensal', 'auditoria_franquias_ons'):
+            destino = caminho_tabela(nome, pasta_res)
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            con.execute(f'COPY {nome} TO ? (FORMAT PARQUET, COMPRESSION ZSTD)', [str(destino)])
+        gerar_html(con, raiz)
+        dados = coletar_dados_painel(con)
+    return {
+        'ok': True,
+        'adicionadas': qtd_adicionadas,
+        'total_eventos': qtd_ev,
+        'total_mensais': qtd_mes,
+        'dados': dados,
+    }
+
+
 def salvar_cenario(raiz, entrada):
     pasta = Path(raiz) / 'resultados'
     with duckdb.connect() as con:
@@ -334,6 +447,12 @@ class ServidorPainel(BaseHTTPRequestHandler):
             self.enviar(200, gerar_icone_png_bytes(tamanho), 'image/png')
         elif caminho == '/api/health':
             self.enviar(200, {'ok': True})
+        elif caminho == '/api/cenarios-salvos':
+            try:
+                cod_ceg = (qs.get('cod_ceg') or [None])[0]
+                self.enviar(200, {'cenarios': listar_cenarios_salvos(self.raiz, cod_ceg)})
+            except Exception as erro:
+                self.enviar(500, {'erro': str(erro)})
         elif caminho == '/api/dados':
             try:
                 banco = self.raiz / BANCO_PADRAO
@@ -416,6 +535,42 @@ class ServidorPainel(BaseHTTPRequestHandler):
             except Exception as erro:
                 print('Erro ao salvar cenario:', erro)
                 self.enviar(500, {'erro': 'Nao foi possivel salvar o cenario.'})
+            return
+
+        if caminho == '/api/manutencoes/efetivar':
+            try:
+                entrada = self._ler_json(1_000_000)
+                res = efetivar_cenario_real(self.raiz, entrada)
+                self.enviar(200, res)
+            except (ValueError, TypeError, KeyError) as erro:
+                self.enviar(400, {'erro': str(erro)})
+            except Exception as erro:
+                print('Erro ao efetivar manutencoes simuladas:', erro)
+                self.enviar(500, {'erro': 'Nao foi possivel efetivar as manutencoes no plano real.'})
+            return
+
+        if caminho == '/api/cenarios-salvos':
+            try:
+                entrada = self._ler_json(2_000_000)
+                cenario, lista = salvar_cenario_nomeado(self.raiz, entrada)
+                self.enviar(200, {'ok': True, 'cenario': cenario, 'cenarios': lista})
+            except (ValueError, TypeError, KeyError) as erro:
+                self.enviar(400, {'erro': str(erro)})
+            except Exception as erro:
+                print('Erro ao salvar cenario simulado:', erro)
+                self.enviar(500, {'erro': 'Nao foi possivel salvar o cenario simulado.'})
+            return
+
+        if caminho == '/api/cenarios-salvos/excluir':
+            try:
+                entrada = self._ler_json(20_000)
+                lista = excluir_cenario_nomeado(self.raiz, entrada.get('id'), entrada.get('cod_ceg'))
+                self.enviar(200, {'ok': True, 'cenarios': lista})
+            except (ValueError, TypeError, KeyError) as erro:
+                self.enviar(400, {'erro': str(erro)})
+            except Exception as erro:
+                print('Erro ao excluir cenario simulado:', erro)
+                self.enviar(500, {'erro': 'Nao foi possivel excluir o cenario simulado.'})
             return
 
         if caminho == '/api/admin/login':

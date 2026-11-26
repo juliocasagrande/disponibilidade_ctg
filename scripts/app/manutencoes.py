@@ -7,7 +7,7 @@ import re
 
 import openpyxl
 
-from .caminhos import ARQUIVO_MANUTENCOES_PADRAO, CONFIG_FONTES
+from .caminhos import ARQUIVO_MANUTENCOES_ADICIONAIS, ARQUIVO_MANUTENCOES_PADRAO, CONFIG_FONTES
 
 
 # Mapeamento oficial de siglas da planilha plurianual para o cadastro CTG Brasil / ONS.
@@ -899,6 +899,199 @@ def testar_conexao_banco(db_cfg):
     raise ValueError(f'Tipo de banco nao suportado para teste direto: {tipo}.')
 
 
+def _caminho_manutencoes_adicionais(raiz=None):
+    return (Path(raiz) / 'dados/manutencoes/manutencoes_adicionais.json') if raiz else ARQUIVO_MANUTENCOES_ADICIONAIS
+
+
+def _buscar_uhe_por_ceg(cod_ceg):
+    for sigla_uhe, info in MAPA_UHE_CTG.items():
+        if info[0] == cod_ceg:
+            return sigla_uhe, info
+    return None, None
+
+
+def _sigla_polo_de_nome(polo_nome):
+    for sigla, nome in MAPA_POLO_NOME.items():
+        if nome == polo_nome:
+            return sigla
+    return ''
+
+
+def _normalizar_evento_adicional(raw, id_fallback):
+    cod_ceg = _para_texto(raw.get('cod_ceg'))
+    sigla_uhe, info_uhe = _buscar_uhe_por_ceg(cod_ceg)
+    if not info_uhe:
+        raise ValueError(f'Usina invalida para efetivacao: {cod_ceg}')
+    ceg, nome_usina, polo_nome, no_escopo_ons, qtd_ugs = info_uhe
+    sigla_polo = _sigla_polo_de_nome(polo_nome)
+
+    ug_num = raw.get('numero_ug')
+    if isinstance(ug_num, bool) or not isinstance(ug_num, int) or not (1 <= ug_num <= max(1, qtd_ugs)):
+        raise ValueError(f'UG invalida ({ug_num}) para a usina {nome_usina}.')
+    ug_str = f'UG{ug_num:02d}'
+
+    data_inicio = _para_data(raw.get('data_inicio'))
+    data_fim = _para_data(raw.get('data_fim'))
+    if not data_inicio or not data_fim or data_fim < data_inicio:
+        raise ValueError('Datas de inicio e termino invalidas.')
+    duracao_dias = int((data_fim - data_inicio).days + 1)
+
+    retorno_diario = bool(raw.get('retorno_diario'))
+    taxa_padrao = 12.0 if retorno_diario else 24.0
+    horas_brutas = _para_float(raw.get('horas_brutas'), duracao_dias * taxa_padrao)
+    if horas_brutas <= 0 or horas_brutas > duracao_dias * 24.0 + 1e-6:
+        raise ValueError(f'Horas brutas invalidas ({horas_brutas} h para {duracao_dias} dias).')
+
+    classificador = _para_texto(raw.get('classificador')).upper()
+    expurgada = bool(raw.get('expurgada'))
+    expurgo_planilha = max(0.0, _para_float(raw.get('expurgo_horas'), 0.0)) if expurgada else 0.0
+    if not expurgada:
+        # Se usuario desmarcou explicitamente expurgada mesmo em classificador integral, respeita 0 expurgo
+        expurgo_horas = 0.0
+        indisp_horas = round(horas_brutas, 4)
+        info_cls = classificar_origem_ons(classificador)
+        regra = {
+            'expurgo_horas': expurgo_horas,
+            'indisponibilidade_horas': indisp_horas,
+            'expurgo_origem': 'NENHUM',
+            'grupo_ons': info_cls['grupo_ons'],
+            'destino_expurgo': '',
+            'destino_ons': 'HDP',
+        }
+    else:
+        regra = avaliar_expurgo_evento(classificador, horas_brutas, expurgo_planilha, True)
+
+    expurgo_horas = regra['expurgo_horas']
+    indisp_horas = regra['indisponibilidade_horas']
+    tipo_manut = _para_texto(raw.get('tipo_manut')).upper() or 'OUTROS'
+    estagio = _para_texto(raw.get('estagio')) or 'Planejado'
+    if estagio not in ('Planejado', 'Programado', 'Reprogramado', 'Executado'):
+        estagio = 'Planejado'
+    desc_completa = _para_texto(raw.get('descricao_completa') or raw.get('descricao')) or f'Intervencao efetivada ({tipo_manut})'
+    desc_breve = desc_completa[:48]
+
+    ativa_no_plano = bool(no_escopo_ons and horas_brutas > 0)
+    ativa_para_calculo = bool(ativa_no_plano and indisp_horas > 0)
+    id_evento = int(raw.get('id_evento') or id_fallback)
+
+    return {
+        'id_evento': id_evento,
+        'sigla_polo': sigla_polo,
+        'polo': polo_nome,
+        'sigla_uhe': sigla_uhe,
+        'cod_ceg': ceg,
+        'usina': nome_usina,
+        'no_escopo_ons': no_escopo_ons,
+        'ug_str': ug_str,
+        'numero_ug': ug_num,
+        'ug_principal': True,
+        'descricao_breve': desc_breve,
+        'descricao_completa': desc_completa,
+        'classificador': classificador,
+        'grupo_ons': regra['grupo_ons'],
+        'destino_expurgo': regra['destino_expurgo'],
+        'destino_ons': regra['destino_ons'],
+        'tipo_manut': tipo_manut,
+        'horas_brutas': round(horas_brutas, 4),
+        'expurgo_planilha_horas': round(expurgo_planilha, 4),
+        'expurgo_horas': expurgo_horas,
+        'expurgo_origem': regra['expurgo_origem'],
+        'retorno_diario': retorno_diario,
+        'baseline': False,
+        'entra_plano': True,
+        'status': 'Ativo',
+        'estagio': estagio,
+        'data_inicio': data_inicio,
+        'data_fim': data_fim,
+        'ano_inicio': data_inicio.year,
+        'mes_inicio': data_inicio.month,
+        'duracao_dias': duracao_dias,
+        'indisponibilidade_horas': indisp_horas,
+        'ativa_no_plano': ativa_no_plano,
+        'ativa_para_calculo': ativa_para_calculo,
+        'observacao': 'Efetivada a partir do Simulador FID',
+        'origem_dado': 'PAINEL',
+    }
+
+
+def ler_manutencoes_adicionais(raiz=None):
+    """Le manutencoes adicionais efetivadas pelo usuario no painel (JSON sidecar)."""
+    caminho = _caminho_manutencoes_adicionais(raiz)
+    if not caminho.is_file():
+        return []
+    try:
+        bruto = json.loads(caminho.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+    if not isinstance(bruto, list):
+        return []
+    eventos = []
+    for idx, item in enumerate(bruto, start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            eventos.append(_normalizar_evento_adicional(item, 100000 + idx))
+        except ValueError:
+            continue
+    return eventos
+
+
+def efetivar_manutencoes_simuladas(raiz, cod_ceg, eventos_simulados):
+    """Salva eventos simulados no JSON de manutencoes adicionais para integra-los ao plano real."""
+    if not isinstance(eventos_simulados, list) or not eventos_simulados:
+        raise ValueError('Informe ao menos uma manutencao simulada para efetivar.')
+    sigla_uhe, info_uhe = _buscar_uhe_por_ceg(cod_ceg)
+    if not info_uhe:
+        raise ValueError('Usina invalida para efetivacao.')
+
+    caminho = _caminho_manutencoes_adicionais(raiz)
+    existentes = []
+    if caminho.is_file():
+        try:
+            lido = json.loads(caminho.read_text(encoding='utf-8'))
+            if isinstance(lido, list):
+                existentes = lido
+        except Exception:
+            existentes = []
+
+    proximo_id = max([100000] + [int(x.get('id_evento') or 0) for x in existentes if isinstance(x, dict)]) + 1
+    novos_registros = []
+    for ev in eventos_simulados:
+        if not isinstance(ev, dict):
+            raise ValueError('Formato de manutencao invalido.')
+        ugs = ev.get('ugs')
+        if not isinstance(ugs, list) or not ugs:
+            raise ValueError('Cada manutencao deve conter ao menos uma UG selecionada.')
+        for ug_raw in ugs:
+            ug_num = int(ug_raw)
+            registro = {
+                'id_evento': proximo_id,
+                'cod_ceg': cod_ceg,
+                'numero_ug': ug_num,
+                'tipo_manut': _para_texto(ev.get('tipo_manut')).upper() or 'OUTROS',
+                'classificador': _para_texto(ev.get('classificador')).upper(),
+                'estagio': _para_texto(ev.get('estagio')) or 'Planejado',
+                'data_inicio': _para_texto(ev.get('data_inicio'))[:10],
+                'data_fim': _para_texto(ev.get('data_fim'))[:10],
+                'retorno_diario': bool(ev.get('retorno_diario')),
+                'horas_brutas': _para_float(ev.get('horas_brutas'), 0.0),
+                'expurgada': bool(ev.get('expurgada')),
+                'expurgo_horas': _para_float(ev.get('expurgo_horas'), 0.0) if ev.get('expurgada') else 0.0,
+                'descricao_completa': _para_texto(ev.get('descricao') or ev.get('descricao_completa')),
+            }
+            # Valida com a mesma regra oficial antes de persistir
+            _normalizar_evento_adicional(registro, proximo_id)
+            novos_registros.append(registro)
+            proximo_id += 1
+
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    atualizado = existentes + novos_registros
+    tmp = caminho.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(atualizado, indent=2, ensure_ascii=False), encoding='utf-8')
+    tmp.replace(caminho)
+    return len(novos_registros)
+
+
 def carregar_manutencoes(con, raiz, caminho_excel=None):
     """Carrega manutencoes, rateio mensal c/ expurgos ONS e auditoria de franquias no DuckDB."""
     raiz = Path(raiz)
@@ -913,7 +1106,9 @@ def carregar_manutencoes(con, raiz, caminho_excel=None):
         if not arquivo.is_absolute():
             arquivo = raiz / arquivo
 
-    eventos = ler_excel_manutencoes(arquivo, cfg.get('excel_aba', 'Plano')) if arquivo.is_file() else []
+    eventos_excel = ler_excel_manutencoes(arquivo, cfg.get('excel_aba', 'Plano')) if arquivo.is_file() else []
+    eventos_extras = ler_manutencoes_adicionais(raiz)
+    eventos = eventos_excel + eventos_extras
     mensais = agregar_manutencoes_mensal(eventos)
     franquias = calcular_auditoria_franquias(eventos)
 
