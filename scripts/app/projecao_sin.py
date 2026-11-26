@@ -262,9 +262,9 @@ def calcular_projecao_sin(con, raiz):
                        5::INTEGER AS faixa,
                        count(*)::INTEGER AS ugs,
                        max(dat_op) AS motorizacao,
-                       FALSE AS incluida,
+                       TRUE AS incluida,
                        FALSE AS excluida,
-                       FALSE AS no_painel_base
+                       TRUE AS no_painel_base
                 FROM cap_ugs
                 WHERE cod_ceg = '{CEG_ITAIPU}'
                 HAVING count(*) > 0
@@ -299,35 +299,52 @@ def calcular_projecao_sin(con, raiz):
             )
         ''')
 
-    # 4. Ultimas taxas SIN (competencia mais recente publicada no TAXA_TEIF_TEIP.parquet)
+    # 4. Historico de taxas SIN por competencia e ultimas taxas (TAXA_TEIF_TEIP.parquet)
     if arq_tax.is_file():
         con.execute('''
-            CREATE OR REPLACE TABLE sin_usinas_taxas_ultimas AS
-            WITH competencia AS (
-                SELECT max(din_mes::DATE) AS mes_ref_ons
-                FROM read_parquet(?)
-            ),
-            ult AS (
+            CREATE OR REPLACE TABLE sin_usinas_taxas_hist AS
+            WITH ult AS (
                 SELECT trim(o.nom_usina) AS nom_usina,
                        coalesce(trim(o.cod_ceg), '') AS cod_ceg,
                        o.din_mes::DATE AS mes_ons,
                        upper(trim(o.nom_taxa)) AS taxa,
                        o.val_taxa
                 FROM read_parquet(?) o
-                CROSS JOIN competencia c
-                WHERE o.din_mes::DATE = c.mes_ref_ons
-                  AND upper(trim(o.tip_usina)) LIKE '%HIDR%'
+                WHERE upper(trim(o.tip_usina)) LIKE '%HIDR%'
                 QUALIFY row_number() OVER (
-                    PARTITION BY trim(o.nom_usina), coalesce(trim(o.cod_ceg), ''), upper(trim(o.nom_taxa))
+                    PARTITION BY o.din_mes::DATE, trim(o.nom_usina), coalesce(trim(o.cod_ceg), ''), upper(trim(o.nom_taxa))
                     ORDER BY o.num_versao DESC, o.din_calculo DESC
                 ) = 1
             ),
             piv AS (
-                SELECT nom_usina, cod_ceg, max(mes_ons) AS mes_ons,
+                SELECT mes_ons, nom_usina, cod_ceg,
                        max(val_taxa) FILTER (WHERE taxa = 'TEIFA') * 100.0 AS teifa_pct,
                        max(val_taxa) FILTER (WHERE taxa = 'TEIP') * 100.0 AS teip_pct
                 FROM ult
-                GROUP BY nom_usina, cod_ceg
+                GROUP BY mes_ons, nom_usina, cod_ceg
+            )
+            SELECT p.mes_ons, s.id_sin, p.teifa_pct, p.teip_pct
+            FROM cadastro_sin_faixas s
+            JOIN piv p
+              ON upper(trim(s.usina_ons)) = upper(p.nom_usina)
+             AND (
+                 s.cod_ceg = p.cod_ceg
+                 OR (s.id_sin = 'SIN83-GERAL' AND p.cod_ceg = '')
+             )
+            ORDER BY p.mes_ons DESC, s.id_sin
+        ''', [str(arq_tax)])
+
+        con.execute('''
+            CREATE OR REPLACE TABLE sin_usinas_taxas_ultimas AS
+            WITH competencia AS (
+                SELECT max(mes_ons) AS mes_ref_ons
+                FROM sin_usinas_taxas_hist
+            ),
+            ult AS (
+                SELECT h.id_sin, h.mes_ons, h.teifa_pct, h.teip_pct
+                FROM sin_usinas_taxas_hist h
+                CROSS JOIN competencia c
+                WHERE h.mes_ons = c.mes_ref_ons
             )
             SELECT s.id_sin, s.usina_cadastro, s.usina_ons, s.cod_ceg,
                    s.faixa, s.ugs, s.motorizacao, s.incluida, s.excluida, s.no_painel_base,
@@ -340,14 +357,14 @@ def calcular_projecao_sin(con, raiz):
                     AND p.teifa_pct IS NOT NULL AND p.teip_pct IS NOT NULL) AS valida_calculo,
                    EXISTS (SELECT 1 FROM dim_usinas_ctg d WHERE d.cod_ceg = s.cod_ceg) AS usina_ctg
             FROM cadastro_sin_faixas s
-            LEFT JOIN piv p
-              ON upper(trim(s.usina_ons)) = upper(p.nom_usina)
-             AND (
-                 s.cod_ceg = p.cod_ceg
-                 OR (s.id_sin = 'SIN83-GERAL' AND p.cod_ceg = '')
-             )
-        ''', [str(arq_tax), str(arq_tax)])
+            LEFT JOIN ult p ON p.id_sin = s.id_sin
+        ''')
     else:
+        con.execute('''
+            CREATE OR REPLACE TABLE sin_usinas_taxas_hist (
+                mes_ons DATE, id_sin VARCHAR, teifa_pct DOUBLE, teip_pct DOUBLE
+            )
+        ''')
         con.execute('''
             CREATE OR REPLACE TABLE sin_usinas_taxas_ultimas (
                 id_sin VARCHAR, usina_cadastro VARCHAR, usina_ons VARCHAR, cod_ceg VARCHAR,

@@ -233,12 +233,27 @@ class ProjecaoSinTest(unittest.TestCase):
             (2, 117, 38),
             (3, 349, 60),
             (4, 101, 19),
-            (5, 24, 2),
+            (5, 44, 3),
         ])
         self.assertEqual(val22, 5)
         self.assertEqual(especiais['SIN76'], (5, 18, True, True))
         self.assertEqual(especiais['TAX165'], (2, 6, True, True))
-        self.assertEqual(especiais['SIN83-GERAL'], (5, 20, False, True))
+        self.assertEqual(especiais['SIN83-GERAL'], (5, 20, True, True))
+
+    def test_historico_sin_data_de_corte_e_nome_pagina(self):
+        from scripts.app.caminhos import BANCO_PADRAO, HTML_PAINEL
+        from scripts.app.painel import coletar_dados_painel
+
+        with duckdb.connect(str(RAIZ / BANCO_PADRAO), read_only=True) as con:
+            dados = coletar_dados_painel(con)
+        self.assertIn('2025-12', dados['sin_meses'])
+        self.assertIn('2025-12', dados['sin_taxas_hist'])
+        self.assertGreater(len(dados['sin_meses']), 12)
+        self.assertGreater(len(dados['sin_taxas_hist']['2025-12']), 100)
+
+        html = (RAIZ / HTML_PAINEL).read_text(encoding='utf-8')
+        self.assertIn('Projeção ID Ref', html)
+        self.assertIn('id="proj-mes-corte"', html)
 
     def test_auto_update_desativavel(self):
         self.assertIsNone(admin_mod.iniciar_atualizacao_automatica(RAIZ, intervalo_horas=0))

@@ -29,7 +29,7 @@
     };
   }
 
-  function projetar(dados, ceg, horizonte, edicoes = {}, idRef = undefined) {
+  function projetar(dados, ceg, horizonte, edicoes = {}, idRef = undefined, mesBase = undefined) {
     if (!Number.isInteger(horizonte) || horizonte < 1 || horizonte > 120) {
       throw new Error('Escolha entre 1 e 120 meses.');
     }
@@ -39,14 +39,20 @@
     if (!Number.isFinite(idRef) || idRef <= 0 || idRef > 1) {
       throw new Error('O ID de referência deve ser maior que 0 e até 100%.');
     }
-    const ugs = dados.horas
-      .filter(u => u.cod_ceg === ceg && mesDe(u.data) === dados.mes_base)
+    const base = mesBase ? mesDe(mesBase) : dados.mes_base;
+    let ugs = dados.horas
+      .filter(u => u.cod_ceg === ceg && mesDe(u.data) === base)
       .map(u => ({ ug: u.ug, potencia_mw: u.potencia_ug_mw }));
+    if (!ugs.length) {
+      ugs = dados.horas
+        .filter(u => u.cod_ceg === ceg && mesDe(u.data) === dados.mes_base)
+        .map(u => ({ ug: u.ug, potencia_mw: u.potencia_ug_mw }));
+    }
     if (!ugs.length || ugs.some(u => !Number.isFinite(u.potencia_mw) || u.potencia_mw <= 0)) {
       throw new Error('Potência das UGs incompleta.');
     }
     const serie = dados.mensal
-      .filter(m => m.cod_ceg === ceg)
+      .filter(m => m.cod_ceg === ceg && mesDe(m.mes) <= base)
       .map(m => ({
         mes: mesDe(m.mes),
         valido: m.mes_valido,
@@ -58,7 +64,7 @@
     const resultados = [];
     const plano = [];
     for (let i = 1; i <= horizonte; i++) {
-      const mes = moverMes(dados.mes_base, i);
+      const mes = moverMes(base, i);
       const hp = horasMes(mes);
       let nf = 0, df = 0, np = 0, dp = 0;
       for (const ug of ugs) {
@@ -117,12 +123,15 @@
     const incluirMpp = opcoes.incluirMpp !== false;
     const incluirOutros = opcoes.incluirOutros !== false;
     const aplicarExpurgos = opcoes.aplicarExpurgos !== false;
+    const base = opcoes.mesBase ? mesDe(opcoes.mesBase) : dados.mes_base;
     const lista = dados.manutencoes_mensal || [];
-    const mesInicio = moverMes(dados.mes_base, 1);
-    const mesFim = moverMes(dados.mes_base, horizonte);
-    const ugsValidos = new Set(
-      dados.horas.filter(u => u.cod_ceg === ceg && mesDe(u.data) === dados.mes_base).map(u => u.ug)
-    );
+    const mesInicio = moverMes(base, 1);
+    const mesFim = moverMes(base, horizonte);
+    let ugsBase = dados.horas.filter(u => u.cod_ceg === ceg && mesDe(u.data) === base).map(u => u.ug);
+    if (!ugsBase.length) {
+      ugsBase = dados.horas.filter(u => u.cod_ceg === ceg && mesDe(u.data) === dados.mes_base).map(u => u.ug);
+    }
+    const ugsValidos = new Set(ugsBase);
     const edicoes = {};
     for (const item of lista) {
       if (item.cod_ceg !== ceg) continue;
@@ -270,7 +279,7 @@
     const fatorTeip = Number(opcoes.fatorTeip ?? 1);
     const excluirPimental = Boolean(opcoes.excluirPimental);
     const excluirBeloMonte = Boolean(opcoes.excluirBeloMonte);
-    const incluirItaipu = Boolean(opcoes.incluirItaipu);
+    const incluirItaipu = opcoes.incluirItaipu !== undefined ? Boolean(opcoes.incluirItaipu) : true;
     const overrides = opcoes.overrides || {};
 
     const faixas = [1, 2, 3, 4, 5].map(f => ({
@@ -291,8 +300,8 @@
         ativa = elegivelTecnico && Boolean(overrides[u.id_sin]);
       } else {
         ativa = Boolean(u.valida_calculo);
-        if (incluirItaipu && u.id_sin === 'SIN83-GERAL' && elegivelTecnico) {
-          ativa = true;
+        if (u.id_sin === 'SIN83-GERAL') {
+          ativa = incluirItaipu && elegivelTecnico;
         }
         if (excluirPimental && u.id_sin === 'TAX165') ativa = false;
         if (excluirBeloMonte && u.id_sin === 'SIN76') ativa = false;
@@ -324,6 +333,48 @@
     });
   }
 
+  /**
+   * Reconstroi a lista de usinas SIN para uma data de corte (YYYY-MM), aplicando as taxas
+   * oficiais ONS daquela competencia e a regra dinamica de motorizacao <= mes_corte - 59 meses.
+   */
+  function resolverSinUsinasNoMes(dados, mesCorte) {
+    const lista = dados.sin_usinas || [];
+    const hist = dados.sin_taxas_hist;
+    const m = mesCorte ? mesDe(mesCorte) : null;
+    if (!m || !hist || !Object.prototype.hasOwnProperty.call(hist, m)) {
+      return lista;
+    }
+    const mapa = hist[m] || {};
+    const limiteMotorizacao = `${moverMes(m, -59)}-01`;
+    return lista.map(u => {
+      const par = mapa[u.id_sin];
+      const teifa = par && Number.isFinite(par[0]) ? par[0] : null;
+      const teip = par && Number.isFinite(par[1]) ? par[1] : null;
+      const idAtual = teifa !== null && teip !== null ? (1 - teifa / 100) * (1 - teip / 100) * 100 : null;
+      const motStr = u.motorizacao ? String(u.motorizacao).slice(0, 10) : null;
+      const valida = Boolean(
+        u.no_painel_base &&
+        u.incluida &&
+        !u.excluida &&
+        u.faixa >= 1 &&
+        u.faixa <= 5 &&
+        u.ugs > 0 &&
+        motStr &&
+        motStr <= limiteMotorizacao &&
+        teifa !== null &&
+        teip !== null
+      );
+      return {
+        ...u,
+        mes_ons: `${m}-01`,
+        teifa_pct: teifa,
+        teip_pct: teip,
+        id_atual_pct: idAtual,
+        valida_calculo: valida,
+      };
+    });
+  }
+
   root.MotorCTG = {
     CAMPOS,
     mesDe,
@@ -334,6 +385,7 @@
     construirEdicoesPlano,
     calcularMargemHoras,
     calcularProjecao2028,
+    resolverSinUsinasNoMes,
   };
   if (typeof module !== 'undefined') module.exports = root.MotorCTG;
 })(globalThis);

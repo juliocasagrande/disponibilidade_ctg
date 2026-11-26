@@ -55,7 +55,7 @@
     atual: ['DESEMPENHO OPERACIONAL', 'Situação Atual das Usinas', 'Visão Geral'],
     simulacao: ['SIMULAÇÃO & PLANEJAMENTO', 'Simulador de Cenários de ID & FID', 'Simulador FID'],
     manutencoes: ['PLANO PLURIANUAL', 'Paradas Programadas e Modernizações', 'Paradas Programadas'],
-    projecao: ['REVISÃO QUINQUENAL SIN', 'Projeção 2028 por Faixa de Potência', 'Projeção 2028 (SIN)'],
+    projecao: ['REVISÃO QUINQUENAL SIN', 'Projeção ID Ref', 'Projeção ID Ref'],
     metodologia: ['CONFORMIDADE REGULATÓRIA', 'Metodologia Oficial ONS & Auditoria', 'Metodologia & ONS'],
     admin: ['ADMINISTRAÇÃO DO SISTEMA', 'Painel do Administrador', 'Administrador'],
   };
@@ -285,6 +285,13 @@
     if (meses.includes(mesAtualAnt)) el('mes-atual').value = mesAtualAnt;
 
     el('base').textContent = `Base ONS: ${dataMes(D.mes_base)}`;
+
+    if (el('proj-mes-corte')) {
+      const corteAnt = el('proj-mes-corte').value;
+      const mesesSin = (D.sin_meses && D.sin_meses.length) ? D.sin_meses : [D.mes_base];
+      el('proj-mes-corte').innerHTML = mesesSin.map(m => `<option value="${m}">${dataMes(m)}</option>`).join('');
+      if (mesesSin.includes(corteAnt)) el('proj-mes-corte').value = corteAnt;
+    }
 
     // Filtros pagina manutencoes
     const anos = [...new Set((D.manutencoes || []).map(m => m.ano_inicio).filter(Boolean))].sort((a, b) => a - b);
@@ -1274,8 +1281,20 @@
     }, true);
   }
 
-  // ==================== 4. PROJEÇÃO 2028 (SIN) ====================
+  // ==================== 4. PROJEÇÃO ID REF ====================
+  function mesCorteProjecao() {
+    const sel = el('proj-mes-corte')?.value;
+    if (sel) return sel;
+    if (D.sin_meses && D.sin_meses.length) return D.sin_meses[0];
+    return D.projecao_faixas?.[0]?.mes_ons ? mes(D.projecao_faixas[0].mes_ons) : D.mes_base;
+  }
+
+  function sinUsinasAtuais() {
+    return M.resolverSinUsinasNoMes(D, mesCorteProjecao());
+  }
+
   function renderProjecao() {
+    const mesCorte = mesCorteProjecao();
     const fatorTeif = Number(el('fator-teif').value);
     const fatorTeip = Number(el('fator-teip').value);
     const excluirPimental = el('chk-excluir-pimental').checked;
@@ -1287,7 +1306,8 @@
 
     const refMap = {};
     for (const f of (D.projecao_faixas || [])) refMap[f.faixa] = f;
-    const faixas = M.calcularProjecao2028(D.sin_usinas || [], refMap, {
+    const sinUsinas = M.resolverSinUsinasNoMes(D, mesCorte);
+    const faixas = M.calcularProjecao2028(sinUsinas, refMap, {
       fatorTeif,
       fatorTeip,
       excluirPimental,
@@ -1297,15 +1317,14 @@
     });
     const faixaById = Object.fromEntries(faixas.map(f => [f.faixa, f]));
 
-    const mesOns = D.projecao_faixas?.[0]?.mes_ons ? dataMes(D.projecao_faixas[0].mes_ons) : dataMes(D.mes_base);
+    const mesOns = dataMes(mesCorte);
 
-    // Calcula situacao das 12 UHEs CTG (atual + projetado +24m com paradas programadas)
-    const ultimoMes = D.mes_base;
+    // Calcula situacao das 12 UHEs CTG (atual na data de corte + projetado +24m com paradas programadas)
     const ctgRows = D.usinas.map(u => {
-      const atual = D.acumulado.find(r => r.cod_ceg === u.cod_ceg && mes(r.mes_fim_historico) === ultimoMes);
-      const plano24 = M.construirEdicoesPlano(D, u.cod_ceg, 24);
+      const atual = D.acumulado.find(r => r.cod_ceg === u.cod_ceg && mes(r.mes_fim_historico) === mesCorte);
+      const plano24 = M.construirEdicoesPlano(D, u.cod_ceg, 24, { mesBase: mesCorte });
       let proj24 = null;
-      try { proj24 = M.projetar(D, u.cod_ceg, 24, plano24, u.id_referencia).resultados.at(-1); } catch (_) {}
+      try { proj24 = M.projetar(D, u.cod_ceg, 24, plano24, u.id_referencia, mesCorte).resultados.at(-1); } catch (_) {}
       const fx = faixaById[u.faixa];
       const idAtual = atual?.id_verificado != null ? atual.id_verificado * 100 : null;
       const idProj = proj24?.id_verificado != null ? proj24.id_verificado * 100 : null;
@@ -1332,10 +1351,10 @@
     const f3 = faixaById[3];
 
     renderKpis('kpis-proj', [
-      ['Universo SIN Elegível', `${totalUsinasSin} UHEs`, `${totalUgsSin} UGs ponderadas · base ${mesOns}`, ''],
+      ['Universo SIN Elegível', `${totalUsinasSin} UHEs`, `${totalUgsSin} UGs ponderadas · corte ${mesOns}`, ''],
       ['Faixa 3 (7 UHEs CTG)', pct100(f3?.id_proj_2028_pct, 2), `Ref. 2022: ${pct100(f3?.id_ref_2022_pct, 2)} (Δ ${f3?.delta_2028_2022_pp >= 0 ? '+' : ''}${numero(f3?.delta_2028_2022_pp, 2)} p.p.)`, 'amber'],
       ['CTG Abaixo da Faixa 2028', String(ctgAbaixo28.length), ctgAbaixo28.length ? ctgAbaixo28.map(r => r.usina).join(', ') : 'Todas acima da nova referência projetada', ctgAbaixo28.length ? 'red' : 'green'],
-      ['Horizonte com Paradas', '+24 meses', `Projeção até ${dataMes(M.moverMes(D.mes_base, 24))} c/ plano plurianual`, 'green'],
+      ['Horizonte com Paradas', '+24 meses', `Projeção até ${dataMes(M.moverMes(mesCorte, 24))} c/ plano plurianual`, 'green'],
     ]);
 
     // Grafico 1: 5 faixas 2022 vs 2028
@@ -1435,7 +1454,7 @@
       ])
     );
 
-    renderTabelaSinConfig();
+    renderTabelaSinConfig(sinUsinas);
   }
 
   function sinUsinaAtiva(u) {
@@ -1445,20 +1464,20 @@
       return { ativa: elegivelTecnico && Boolean(sinOverrides[u.id_sin]), alterada: true, elegivelTecnico };
     }
     let ativa = Boolean(u.valida_calculo);
-    if (el('chk-incluir-itaipu').checked && u.id_sin === 'SIN83-GERAL' && elegivelTecnico) ativa = true;
+    if (u.id_sin === 'SIN83-GERAL') ativa = el('chk-incluir-itaipu').checked && elegivelTecnico;
     if (el('chk-excluir-pimental').checked && u.id_sin === 'TAX165') ativa = false;
     if (el('chk-excluir-belomonte').checked && u.id_sin === 'SIN76') ativa = false;
     return { ativa, alterada: ativa !== Boolean(u.valida_calculo), elegivelTecnico };
   }
 
-  function renderTabelaSinConfig() {
+  function renderTabelaSinConfig(sinUsinasLista = null) {
     const filtroFaixa = el('sin-filtro-faixa').value;
     const filtroStatus = el('sin-filtro-status').value;
     const busca = (el('sin-busca').value || '').trim().toLowerCase();
     const fatorTeif = Number(el('fator-teif').value);
     const fatorTeip = Number(el('fator-teip').value);
 
-    const todas = (D.sin_usinas || []).map(u => ({ ...u, ...sinUsinaAtiva(u) }));
+    const todas = (sinUsinasLista || sinUsinasAtuais()).map(u => ({ ...u, ...sinUsinaAtiva(u) }));
     const totalAtivas = todas.filter(u => u.ativa).length;
     const totalUgsAtivas = todas.filter(u => u.ativa).reduce((s, u) => s + (u.ugs || 0), 0);
     const totalAlteradas = todas.filter(u => u.alterada).length;
@@ -1927,7 +1946,7 @@
       const uUnica = usinaAtual();
       sub = `${uUnica ? uUnica.usina : 'CTG Brasil'} · ${ano}`;
     } else if (pagina === 'projecao') {
-      sub = `TEIFa ${numero(Number(el('fator-teif').value || 1), 2)}× · TEIP ${numero(Number(el('fator-teip').value || 1), 2)}×`;
+      sub = `Corte ${dataMes(mesCorteProjecao())} · TEIFa ${numero(Number(el('fator-teif').value || 1), 2)}× · TEIP ${numero(Number(el('fator-teip').value || 1), 2)}×`;
     } else if (pagina === 'metodologia') {
       sub = 'ONS RO-AO.BR.04 · MME 709/2022';
     } else if (pagina === 'admin') {
@@ -1944,11 +1963,11 @@
     if (el('mob-btn-logout')) el('mob-btn-logout').hidden = !(adminAutenticado && pagina === 'admin');
 
     if (el('mob-sheet-title')) {
-      el('mob-sheet-title').textContent = pagina === 'projecao' ? 'Sensibilidade 2028 (SIN)' : 'Filtros da Tela';
+      el('mob-sheet-title').textContent = pagina === 'projecao' ? 'Filtros · Projeção ID Ref' : 'Filtros da Tela';
     }
     if (el('mob-sheet-sub')) {
       el('mob-sheet-sub').textContent = pagina === 'projecao'
-        ? 'Ajuste fatores de indisponibilidade e usinas de referência'
+        ? 'Ajuste data de corte, fatores de indisponibilidade e usinas de referência'
         : 'Selecione polo, usina e período de análise';
     }
 
@@ -2000,18 +2019,23 @@
       const stLblMap = { plano: 'No Plano', ativas: 'HDP > 0', expurgadas: 'Expurgadas', todas: 'Todas', canceladas: 'Canceladas' };
       chips.push({ id: 'manut-status', lbl: 'Status', val: stLblMap[st] || st, active: st !== 'plano' });
     } else if (pagina === 'projecao') {
+      const corte = mesCorteProjecao();
+      const padraoSin = (D.sin_meses && D.sin_meses[0]) || D.mes_base;
+      const corteDiff = Boolean(corte && corte !== padraoSin);
       const ft = Number(el('fator-teif').value || 1);
       const fp = Number(el('fator-teip').value || 1);
       const c1 = el('chk-excluir-pimental').checked;
       const c2 = el('chk-excluir-belomonte').checked;
-      const c3 = el('chk-incluir-itaipu').checked;
+      const c3 = !el('chk-incluir-itaipu').checked;
       const overridesN = Object.keys(sinOverrides).length;
+      if (corteDiff) ativos++;
       if (Math.abs(ft - 1) > 1e-6) ativos++;
       if (Math.abs(fp - 1) > 1e-6) ativos++;
       if (c1 || c2 || c3 || overridesN > 0) ativos++;
+      chips.push({ id: 'proj-mes-corte', lbl: 'Corte', val: dataMes(corte), active: corteDiff });
       chips.push({ id: 'fator-teif', lbl: 'TEIFa', val: `${numero(ft, 2)}×`, active: Math.abs(ft - 1) > 1e-6 });
       chips.push({ id: 'fator-teip', lbl: 'TEIP', val: `${numero(fp, 2)}×`, active: Math.abs(fp - 1) > 1e-6 });
-      const sinFlags = [c1 ? '−Pimental' : '', c2 ? '−B.Monte' : '', c3 ? '+Itaipu' : ''].filter(Boolean);
+      const sinFlags = [c1 ? '−Pimental' : '', c2 ? '−B.Monte' : '', c3 ? '−Itaipu' : ''].filter(Boolean);
       chips.push({
         id: 'chk-excluir-pimental',
         lbl: 'Base SIN',
@@ -2059,7 +2083,7 @@
     const temPoloUsina = nome === 'atual' || nome === 'simulacao' || nome === 'manutencoes';
     const mostrarBox = temPoloUsina || nome === 'projecao';
     el('sidebar-filters').hidden = !mostrarBox;
-    el('sf-title').textContent = nome === 'projecao' ? 'Sensibilidade 2028' : 'Filtros';
+    el('sf-title').textContent = nome === 'projecao' ? 'Sensibilidade & Corte' : 'Filtros';
     el('sf-polo-usina').hidden = !temPoloUsina;
     el('sf-atual').hidden = nome !== 'atual';
     el('sf-simulacao').hidden = nome !== 'simulacao';
@@ -2420,7 +2444,14 @@
   }
   el('manut-busca').oninput = () => renderManutencoes();
 
-  // Projecao 2028 controles
+  // Projecao ID Ref controles
+  if (el('proj-mes-corte')) {
+    el('proj-mes-corte').onchange = () => {
+      sinOverrides = {};
+      renderProjecao();
+      atualizarUiMobile();
+    };
+  }
   for (const id of ['fator-teif', 'fator-teip']) {
     el(id).oninput = () => { renderProjecao(); atualizarUiMobile(); };
   }
@@ -2440,11 +2471,15 @@
     atualizarUiMobile();
   };
   el('proj-reset').onclick = () => {
+    if (el('proj-mes-corte')) {
+      const padraoSin = (D.sin_meses && D.sin_meses[0]) || D.mes_base;
+      el('proj-mes-corte').value = padraoSin;
+    }
     el('fator-teif').value = '1.00';
     el('fator-teip').value = '1.00';
     el('chk-excluir-pimental').checked = false;
     el('chk-excluir-belomonte').checked = false;
-    el('chk-incluir-itaipu').checked = false;
+    el('chk-incluir-itaipu').checked = true;
     sinOverrides = {};
     renderProjecao();
     atualizarUiMobile();
@@ -2455,7 +2490,7 @@
     sinOverrides = {};
     el('chk-excluir-pimental').checked = false;
     el('chk-excluir-belomonte').checked = false;
-    el('chk-incluir-itaipu').checked = false;
+    el('chk-incluir-itaipu').checked = true;
     renderProjecao();
     atualizarUiMobile();
   };
@@ -2464,7 +2499,7 @@
     if (!chk) return;
     const idSin = chk.dataset.sinId;
     const marcado = chk.checked;
-    const orig = (D.sin_usinas || []).find(u => u.id_sin === idSin);
+    const orig = sinUsinasAtuais().find(u => u.id_sin === idSin);
     if (idSin === 'TAX165') el('chk-excluir-pimental').checked = !marcado;
     if (idSin === 'SIN76') el('chk-excluir-belomonte').checked = !marcado;
     if (idSin === 'SIN83-GERAL') el('chk-incluir-itaipu').checked = marcado;

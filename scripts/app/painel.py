@@ -56,6 +56,8 @@ def coletar_dados_painel(con):
         'classificadores_ons': CLASSIFICADORES_ONS,
         'projecao_faixas': [],
         'sin_usinas': [],
+        'sin_meses': [],
+        'sin_taxas_hist': {},
         'validacao_2022': [],
     }
     if _tabela_existe(con, 'manutencoes_programadas'):
@@ -96,6 +98,21 @@ def coletar_dados_painel(con):
             FROM sin_usinas_taxas_ultimas
             ORDER BY faixa, usina_cadastro
         ''')
+    if _tabela_existe(con, 'sin_usinas_taxas_hist'):
+        hist_rows = con.execute('''
+            SELECT strftime(mes_ons, '%Y-%m') AS mes, id_sin,
+                   round(teifa_pct, 6) AS teifa_pct,
+                   round(teip_pct, 6) AS teip_pct
+            FROM sin_usinas_taxas_hist
+            ORDER BY mes DESC, id_sin
+        ''').fetchall()
+        sin_hist = {}
+        for mes_str, id_sin, teifa_pct, teip_pct in hist_rows:
+            if mes_str not in sin_hist:
+                sin_hist[mes_str] = {}
+            sin_hist[mes_str][id_sin] = [teifa_pct, teip_pct]
+        dados['sin_meses'] = sorted(sin_hist.keys(), reverse=True)
+        dados['sin_taxas_hist'] = sin_hist
     if _tabela_existe(con, 'validacao_2022_faixas'):
         dados['validacao_2022'] = registros(con, 'SELECT * FROM validacao_2022_faixas ORDER BY faixa')
 
