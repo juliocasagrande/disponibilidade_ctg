@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 import os
 import sys
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 import duckdb
@@ -64,9 +65,16 @@ def baixar_arquivo(recurso, destino):
 
 
 def atualizar_dados(raiz, ano_inicial, ano_final):
+    ano_corrente = date.today().year
     for ano in range(ano_inicial, ano_final + 1):
         nome = f'TAXA_TEIF_TEIP_PARAM_{ano}.parquet'
-        baixar_arquivo(f'taxa_teif_teip_parametro/{nome}', raiz / 'dados/ons/parametros' / nome)
+        try:
+            baixar_arquivo(f'taxa_teif_teip_parametro/{nome}', raiz / 'dados/ons/parametros' / nome)
+        except HTTPError as erro:
+            if erro.code == 404 and ano >= ano_corrente:
+                print(f'Aviso: {nome} ainda nao publicado pelo ONS (HTTP 404); mantendo anos disponiveis.', flush=True)
+                continue
+            raise
     for pasta, subpasta, nome in (
         ('capacidade-geracao', 'cadastro', 'CAPACIDADE_GERACAO.parquet'),
         ('taxa_teif_teip', 'taxas', 'TAXA_TEIF_TEIP.parquet'),
@@ -79,9 +87,15 @@ def main(argv=None):
     raiz = RAIZ
     os.chdir(raiz)
     if args.atualizar or args.somente_baixar:
-        # Uma falha no download interrompe a execucao antes do calculo.
+        # Uma falha no download do ONS interrompe a execucao antes do calculo.
         atualizar_dados(raiz, args.ano_inicial, args.ano_final)
-        atualizar_referencias(raiz, args.referencias_url)
+        ref_local = raiz / 'dados/mme/REFERENCIAS_FID.parquet'
+        try:
+            atualizar_referencias(raiz, args.referencias_url)
+        except (URLError, HTTPError, TimeoutError, OSError) as erro:
+            if args.referencias_url or not ref_local.is_file():
+                raise
+            print(f'Aviso: falha de rede ao consultar MME ({erro}); mantendo REFERENCIAS_FID.parquet local.', flush=True)
     if args.somente_baixar:
         print('Download concluido. Para calcular: python scripts/executar.py', flush=True)
         return

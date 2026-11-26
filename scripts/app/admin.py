@@ -1,6 +1,6 @@
 """Autenticacao, execucao de scripts, configuracao de fontes e explorador Parquet/SQL."""
 import csv
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import hmac
 import io
@@ -231,6 +231,54 @@ def iniciar_job_pipeline(raiz, acao, parametros=None):
 
     threading.Thread(target=_runner, daemon=True).start()
     return status_job()
+
+
+def _idade_base_ons_segundos(raiz):
+    alvo = Path(raiz) / 'dados/ons/taxas/TAXA_TEIF_TEIP.parquet'
+    if not alvo.is_file():
+        return float('inf')
+    return max(0.0, time.time() - alvo.stat().st_mtime)
+
+
+def iniciar_atualizacao_automatica(raiz, intervalo_horas=None, atraso_inicial_segundos=30):
+    """Agenda atualizacao automatica periodica dos dados ONS/MME e recalculo completo.
+
+    Controlado por CALC_ID_AUTO_UPDATE_HOURS (padrao: 24h; 0 desativa).
+    Nao bloqueia a inicializacao do servidor e respeita o lock do pipeline admin.
+    """
+    if intervalo_horas is None:
+        bruto = os.environ.get('CALC_ID_AUTO_UPDATE_HOURS', '24').strip()
+        try:
+            intervalo_horas = float(bruto)
+        except ValueError:
+            intervalo_horas = 24.0
+    if intervalo_horas <= 0:
+        return None
+
+    intervalo_seg = max(300.0, float(intervalo_horas) * 3600.0)
+    raiz = Path(raiz)
+
+    def _ciclo():
+        atraso = max(0.0, float(atraso_inicial_segundos))
+        idade = _idade_base_ons_segundos(raiz)
+        espera_inicial = atraso if idade >= intervalo_seg else max(atraso, intervalo_seg - idade)
+        time.sleep(espera_inicial)
+        while True:
+            try:
+                iniciar_job_pipeline(raiz, 'atualizar_ons', {
+                    'ano_inicial': 2020,
+                    'ano_final': date.today().year,
+                })
+                print(f'Atualizacao automatica ONS iniciada (ciclo {intervalo_horas:g}h).', flush=True)
+            except RuntimeError:
+                pass
+            except Exception as erro:
+                print(f'Aviso: falha ao agendar atualizacao automatica ONS: {erro}', flush=True)
+            time.sleep(intervalo_seg)
+
+    t = threading.Thread(target=_ciclo, name='calc-id-auto-update', daemon=True)
+    t.start()
+    return t
 
 
 def _raizes_parquet_permitidas(raiz):
@@ -484,6 +532,7 @@ __all__ = [
     'extrair_token_cookie',
     'status_job',
     'iniciar_job_pipeline',
+    'iniciar_atualizacao_automatica',
     'listar_parquets',
     'preview_parquet',
     'resolver_parquet_seguro',

@@ -1496,7 +1496,14 @@
         } else if (u.ativa) {
           sitBadge = '<span class="badge">Ativa</span>';
         } else {
-          sitBadge = `<span class="badge neutral">${u.excluida ? 'Excluída padrão' : !u.incluida ? 'Fora do cadastro' : 'Motorização > 60m'}</span>`;
+          const rotulo = u.excluida
+            ? 'Excluída padrão'
+            : !u.no_painel_base
+              ? 'Opcional (sim.)'
+              : !u.incluida
+                ? 'Fora do cadastro'
+                : 'Motorização < 60m';
+          sitBadge = `<span class="badge neutral">${rotulo}</span>`;
         }
         const teifaAj = Number.isFinite(u.teifa_pct) ? Math.min(100, u.teifa_pct * fatorTeif) : null;
         const teipAj = Number.isFinite(u.teip_pct) ? Math.min(100, u.teip_pct * fatorTeip) : null;

@@ -192,6 +192,57 @@ class ProjecaoSinTest(unittest.TestCase):
             self.assertTrue(80.0 < id_pct <= 100.0, (faixa, id_pct))
         self.assertEqual(ctg, (12, 4))
 
+    def test_autosuficiente_sem_referencias_sin_e_itaipu_vinculada(self):
+        import shutil
+        import tempfile
+        from scripts.app.projecao_sin import calcular_projecao_sin
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz_tmp = Path(tmp)
+            for rel in ('dados/ons/cadastro/CAPACIDADE_GERACAO.parquet', 'dados/ons/taxas/TAXA_TEIF_TEIP.parquet'):
+                destino = raiz_tmp / rel
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(RAIZ / rel, destino)
+
+            # Sem nenhum arquivo em dados/referencias_sin/, o calculo deriva tudo do ONS
+            self.assertFalse((raiz_tmp / 'dados/referencias_sin').exists())
+
+            with duckdb.connect() as con:
+                con.execute("CREATE TABLE dim_usinas_ctg (cod_ceg VARCHAR, quantidade_ugs_escopo INTEGER)")
+                con.execute('''
+                    CREATE TABLE indicadores_disponibilidade_ctg (
+                        cod_ceg VARCHAR, usina VARCHAR, mes_fim_historico DATE,
+                        teifa_pct DOUBLE, teip_pct DOUBLE, id_verificado DOUBLE,
+                        id_verificado_pct DOUBLE, id_referencia DOUBLE,
+                        fid_bruto DOUBLE, fid_mra DOUBLE
+                    )
+                ''')
+                calcular_projecao_sin(con, raiz_tmp)
+                faixas = con.execute(
+                    'SELECT faixa, ugs_sin, usinas_sin, id_proj_2028_pct FROM projecao_faixas_sin ORDER BY faixa'
+                ).fetchall()
+                val22 = con.execute('SELECT count(*) FROM validacao_2022_faixas').fetchone()[0]
+                especiais = dict(con.execute('''
+                    SELECT id_sin, (faixa, ugs, valida_calculo, teifa_pct IS NOT NULL AND teip_pct IS NOT NULL)
+                    FROM sin_usinas_taxas_ultimas
+                    WHERE id_sin IN ('SIN76', 'TAX165', 'SIN83-GERAL')
+                ''').fetchall())
+
+        self.assertEqual([(f, ugs, us) for f, ugs, us, _ in faixas], [
+            (1, 68, 24),
+            (2, 117, 38),
+            (3, 349, 60),
+            (4, 101, 19),
+            (5, 24, 2),
+        ])
+        self.assertEqual(val22, 5)
+        self.assertEqual(especiais['SIN76'], (5, 18, True, True))
+        self.assertEqual(especiais['TAX165'], (2, 6, True, True))
+        self.assertEqual(especiais['SIN83-GERAL'], (5, 20, False, True))
+
+    def test_auto_update_desativavel(self):
+        self.assertIsNone(admin_mod.iniciar_atualizacao_automatica(RAIZ, intervalo_horas=0))
+
 
 class AdminApiTest(unittest.TestCase):
     def setUp(self):

@@ -155,6 +155,7 @@ def main():
     senha = os.environ['CALC_ID_WEB_PASSWORD']
     if not senha or not os.environ.get('CALC_ID_ADMIN_PASSWORD'):
         raise SystemExit('Defina as senhas do painel e do administrador.')
+    admin.iniciar_atualizacao_automatica(RAIZ)
     handler = partial(PainelRailway, raiz=RAIZ, usuarios=Usuarios(RAIZ), senha_inicial=senha)
     with ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), handler) as servidor:
         print(f'Painel pronto na porta {servidor.server_port}', flush=True)

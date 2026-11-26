@@ -176,7 +176,7 @@ Conecte o repositório a um serviço Railway, monte um volume persistente em `/d
 
 Em **Administrador → Usuários**, é possível criar contas individuais, editar nomes, trocar senhas e ativar ou desativar acessos. Trocar a senha ou desativar uma conta encerra suas sessões abertas. As contas ficam em `/data/dados/usuarios.sqlite3`. A senha da conta inicial é alterada nas variáveis do Railway.
 
-O primeiro deploy copia as bases públicas do ONS e do MME para o volume. Os deploys seguintes conservam os insumos atualizados, as configurações do painel, os arquivos carregados e os cenários. O serviço recalcula os produtos na inicialização. A planilha de manutenções pode ser carregada na área Administrador e o cadastro SIN pode ser colocado em `/data/dados/referencias_sin/` pelo acesso autenticado ao volume. Rode **Recalcular** após adicionar os insumos.
+O primeiro deploy copia as bases públicas do ONS e do MME para o volume. Os deploys seguintes conservam os insumos atualizados, as configurações do painel, os arquivos carregados e os cenários. O serviço recalcula os produtos na inicialização — incluindo a **Projeção 2028 (SIN)**, derivada automaticamente das bases oficiais do ONS (`CAPACIDADE_GERACAO.parquet` e `TAXA_TEIF_TEIP.parquet`) sem exigir planilhas externas — e agenda atualização automática periódica dos dados ONS/MME (controlada por `CALC_ID_AUTO_UPDATE_HOURS`, padrão `24`; `0` desativa). A planilha de manutenções pode ser carregada na área Administrador. Rode **Recalcular** após adicionar novos insumos manuais.
 
 ### Execução local
 
